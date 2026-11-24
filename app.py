@@ -10,6 +10,12 @@ import mod_supervisado as ms
 import mod_no_supervisado as mns
 import mod_refuerzo as mr
 
+import data_manager as dm
+# ... otros imports ...
+
+# DEBUG - visible en la app
+st.write(f"🔍 Versión data_manager: {'CON FIX' if hasattr(dm, '_clean_value') and 'Renumerar' in dm.bulk_insert.__doc__ else 'VIEJA'}")
+
 # ============================================================
 # CONFIGURACIÓN DE PÁGINA
 # ============================================================
