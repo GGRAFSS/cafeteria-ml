@@ -9,6 +9,7 @@ import mod_u1_fundamentos as u1
 import mod_supervisado as ms
 import mod_no_supervisado as mns
 import mod_refuerzo as mr
+from datetime import datetime
 
 # ============================================================
 # DEBUG — Verificar que Streamlit Cloud lee el código nuevo
@@ -446,3 +447,27 @@ with tabs[5]:
             st.dataframe(politica, use_container_width=True, hide_index=True)
     else:
         st.info("Haz clic en el botón para que el agente empiece a aprender.")
+
+        # ============ 7. REPORTE PDF (NUEVA SECCIÓN) ============
+with st.sidebar:
+    st.divider()
+    st.markdown("### 📄 Reporte PDF")
+    st.markdown("Genera un reporte completo con todos los resultados y análisis.")
+    if st.button("📄 Generar Reporte PDF", use_container_width=True):
+        with st.spinner("Entrenando modelos y compilando reporte... (puede tardar 30-60 seg)"):
+            import mod_reporte as mrp
+            pdf_bytes, err = mrp.generar_reporte_pdf(df)
+        if err:
+            st.error(f"Error: {err}")
+        else:
+            st.session_state["pdf_reporte"] = pdf_bytes
+            st.success("✅ Reporte generado. Descárgalo abajo.")
+    
+    if "pdf_reporte" in st.session_state:
+        st.download_button(
+            label="⬇️ Descargar Reporte PDF",
+            data=st.session_state["pdf_reporte"],
+            file_name=f"Reporte_Cafeteria_ML_{datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
