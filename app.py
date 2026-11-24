@@ -35,7 +35,7 @@ with st.sidebar:
         """
         **Materia:** Aprendizaje Automático  
         **Posgrado:** Maestría en Inteligencia Artificial  
-        **Dataset:** Cafetería Universitaria (200+ registros)
+        **Dataset:** Cafetería Universitaria
         """
     )
     st.divider()
@@ -284,24 +284,41 @@ with tabs[4]:
         
         # --- 1. DISTANCIAS ---
         with sub_tab1:
-            st.markdown("Calcula la **Distancia Euclidiana** (variables numéricas) y el **Coeficiente de Jaccard** (variables categóricas) entre dos clientes.")
-            c1, c2 = st.columns(2)
-            with c1:
-                id_a = st.number_input("ID del Cliente A", min_value=int(df["ID_Cliente"].min()), max_value=int(df["ID_Cliente"].max()), value=int(df["ID_Cliente"].min()))
-            with c2:
-                id_b = st.number_input("ID del Cliente B", min_value=int(df["ID_Cliente"].min()), max_value=int(df["ID_Cliente"].max()), value=int(df["ID_Cliente"].min() + 1))
+            st.markdown("Calcula la **Distancia Euclidiana** (numéricas) y el **Coeficiente de Jaccard** (categóricas) entre dos clientes.")
             
-            if st.button("Calcular Distancias"):
-                res_dist = mns.calcular_distancias(df, id_a, id_b)
-                if res_dist.get("error"):
-                    st.error(res_dist["error"])
-                else:
-                    k1, k2, k3 = st.columns(3)
-                    k1.metric("Distancia Euclidiana", f"{res_dist['dist_euclidiana']:.2f}")
-                    k2.metric("Similitud de Jaccard", f"{res_dist['jaccard_similitud']:.2%}")
-                    k3.metric("Distancia de Jaccard", f"{res_dist['jaccard_distancia']:.2f}")
-                    
-                    st.info("💡 **Interpretación:** Mientras menor sea la distancia euclidiana, más parecidos son en comportamiento numérico. En Jaccard, 100% significa que tienen exactamente las mismas categorías.")
+            # PROTECCIÓN: si hay menos de 2 registros, no mostrar inputs
+            if len(df) < 2:
+                st.warning("⚠️ Se necesitan al menos 2 registros en la base de datos para calcular distancias. Ve a la pestaña de Captura para agregar datos.")
+            else:
+                min_id = int(df["ID_Cliente"].min())
+                max_id = int(df["ID_Cliente"].max())
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    id_a = st.number_input(
+                        "ID del Cliente A", 
+                        min_value=min_id, max_value=max_id, 
+                        value=min_id, 
+                        key="dist_id_a"
+                    )
+                with c2:
+                    id_b = st.number_input(
+                        "ID del Cliente B", 
+                        min_value=min_id, max_value=max_id, 
+                        value=min(max_id, min_id + 1), 
+                        key="dist_id_b"
+                    )
+                
+                if st.button("Calcular Distancias"):
+                    res_dist = mns.calcular_distancias(df, id_a, id_b)
+                    if res_dist.get("error"):
+                        st.error(res_dist["error"])
+                    else:
+                        k1, k2, k3 = st.columns(3)
+                        k1.metric("Distancia Euclidiana", f"{res_dist['dist_euclidiana']:.2f}")
+                        k2.metric("Similitud de Jaccard", f"{res_dist['jaccard_similitud']:.2%}")
+                        k3.metric("Distancia de Jaccard", f"{res_dist['jaccard_distancia']:.2f}")
+                        st.info("💡 **Interpretación:** Menor distancia euclidiana = más parecidos en comportamiento numérico. Jaccard 100% = mismas categorías exactas.")
 
         # --- 2. CLUSTERING ---
         with sub_tab2:
@@ -333,7 +350,7 @@ with tabs[4]:
                         st.error(res_jer["error"])
                     else:
                         st.pyplot(res_jer["fig_dendro"])
-                        st.info("💡 El dendrograma muestra cómo los clientes se van fusionando. El punto donde las líneas se unen más alto indica el número óptimo de clústeres.")
+                        st.info("💡 El dendrograma muestra cómo los clientes se van fusionando.")
                         
             else: # DBSCAN
                 c1, c2 = st.columns(2)
@@ -352,7 +369,7 @@ with tabs[4]:
                         m1.metric("Clústeres encontrados", res_db["n_clusters"])
                         m2.metric("Puntos de ruido", res_db["n_noise"])
                         st.pyplot(res_db["fig_pca"])
-                        st.info("💡 DBSCAN no requiere definir K, pero es muy sensible al parámetro ε. Los puntos marcados con -1 son ruido (anomalías).")
+                        st.info("💡 DBSCAN no requiere definir K, pero es muy sensible al parámetro ε.")
 
 # ============ 6. REFUERZO (U4) ============
 with tabs[5]:
@@ -361,9 +378,6 @@ with tabs[5]:
         """
         **Problema:** Un agente (barista) debe decidir cuántos empleados asignar a la caja 
         según la afluencia de clientes (Baja, Media, Alta) para maximizar las ganancias.
-        
-        El agente **aprenderá por ensayo y error** usando la Ecuación de Bellman para actualizar 
-        su conocimiento (Matriz Q).
         """
     )
     
@@ -408,6 +422,5 @@ with tabs[5]:
         with c2:
             st.markdown("### 🎯 Política Óptima Aprendida")
             st.dataframe(politica, use_container_width=True, hide_index=True)
-            st.info("💡 Esta es la **estrategia que el agente decidió** después de jugar miles de partidas.")
     else:
         st.info("Haz clic en el botón para que el agente empiece a aprender.")
