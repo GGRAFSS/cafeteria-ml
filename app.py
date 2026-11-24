@@ -10,17 +10,16 @@ import mod_supervisado as ms
 import mod_no_supervisado as mns
 import mod_refuerzo as mr
 
-import data_manager as dm
-# ... otros imports ...
-
-# DEBUG - visible en la app
-st.write(f"🔍 Versión data_manager: {'CON FIX' if hasattr(dm, '_clean_value') and 'Renumerar' in dm.bulk_insert.__doc__ else 'VIEJA'}")
+# ============================================================
+# DEBUG — Verificar que Streamlit Cloud lee el código nuevo
+# ============================================================
+st.write(f"🔍 Versión data_manager: {'CON FIX' if hasattr(dm, '_clean_value') and 'forzando IDs nuevos' in dm.bulk_insert.__doc__ else 'VIEJA'}")
 
 # ============================================================
 # CONFIGURACIÓN DE PÁGINA
 # ============================================================
 st.set_page_config(
-    page_title="Cafetería Universitaria — MLL",
+    page_title="Cafetería Universitaria — ML",
     page_icon="☕",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -292,28 +291,17 @@ with tabs[4]:
         with sub_tab1:
             st.markdown("Calcula la **Distancia Euclidiana** (numéricas) y el **Coeficiente de Jaccard** (categóricas) entre dos clientes.")
             
-            # PROTECCIÓN: si hay menos de 2 registros, no mostrar inputs
             if len(df) < 2:
-                st.warning("⚠️ Se necesitan al menos 2 registros en la base de datos para calcular distancias. Ve a la pestaña de Captura para agregar datos.")
+                st.warning("⚠️ Se necesitan al menos 2 registros para calcular distancias.")
             else:
                 min_id = int(df["ID_Cliente"].min())
                 max_id = int(df["ID_Cliente"].max())
                 
                 c1, c2 = st.columns(2)
                 with c1:
-                    id_a = st.number_input(
-                        "ID del Cliente A", 
-                        min_value=min_id, max_value=max_id, 
-                        value=min_id, 
-                        key="dist_id_a"
-                    )
+                    id_a = st.number_input("ID del Cliente A", min_value=min_id, max_value=max_id, value=min_id, key="dist_id_a")
                 with c2:
-                    id_b = st.number_input(
-                        "ID del Cliente B", 
-                        min_value=min_id, max_value=max_id, 
-                        value=min(max_id, min_id + 1), 
-                        key="dist_id_b"
-                    )
+                    id_b = st.number_input("ID del Cliente B", min_value=min_id, max_value=max_id, value=min(max_id, min_id + 1), key="dist_id_b")
                 
                 if st.button("Calcular Distancias"):
                     res_dist = mns.calcular_distancias(df, id_a, id_b)
@@ -324,7 +312,7 @@ with tabs[4]:
                         k1.metric("Distancia Euclidiana", f"{res_dist['dist_euclidiana']:.2f}")
                         k2.metric("Similitud de Jaccard", f"{res_dist['jaccard_similitud']:.2%}")
                         k3.metric("Distancia de Jaccard", f"{res_dist['jaccard_distancia']:.2f}")
-                        st.info("💡 **Interpretación:** Menor distancia euclidiana = más parecidos en comportamiento numérico. Jaccard 100% = mismas categorías exactas.")
+                        st.info("💡 Menor distancia euclidiana = más parecidos en comportamiento numérico. Jaccard 100% = mismas categorías exactas.")
 
         # --- 2. CLUSTERING ---
         with sub_tab2:
@@ -341,7 +329,7 @@ with tabs[4]:
                     if res_km.get("error"):
                         st.error(res_km["error"])
                     else:
-                        st.metric("Índice de Silhouette", f"{res_km['silhouette']:.4f}", help="Valores cercanos a 1 indican mejor separación.")
+                        st.metric("Índice de Silhouette", f"{res_km['silhouette']:.4f}", help="Cercano a 1 = mejor separación.")
                         c1, c2 = st.columns(2)
                         with c1:
                             st.pyplot(res_km["fig_codo"])
@@ -375,7 +363,7 @@ with tabs[4]:
                         m1.metric("Clústeres encontrados", res_db["n_clusters"])
                         m2.metric("Puntos de ruido", res_db["n_noise"])
                         st.pyplot(res_db["fig_pca"])
-                        st.info("💡 DBSCAN no requiere definir K, pero es muy sensible al parámetro ε.")
+                        st.info("💡 DBSCAN no requiere definir K, pero es sensible al parámetro ε.")
 
 # ============ 6. REFUERZO (U4) ============
 with tabs[5]:
@@ -392,7 +380,7 @@ with tabs[5]:
         st.markdown(
             """
             * **α (alpha):** Tasa de aprendizaje.
-            * **γ (gamma):** Factor de descuento (importancia del futuro).
+            * **γ (gamma):** Factor de descuento.
             * **r:** Recompensa inmediata.
             """
         )
@@ -413,7 +401,7 @@ with tabs[5]:
             fig_aprendizaje, fig_q = mr.graficar_resultados(Q, historial)
             politica = mr.obtener_politica_optima(Q)
         
-        st.success("✅ Agente entrenado. Revisa cómo mejoró su desempeño con el tiempo.")
+        st.success("✅ Agente entrenado.")
         
         st.markdown("### 📈 Evolución del Aprendizaje")
         st.pyplot(fig_aprendizaje)

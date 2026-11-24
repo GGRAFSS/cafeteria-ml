@@ -93,43 +93,35 @@ def save_record(record: dict) -> tuple[bool, str | None]:
 
 
 def bulk_insert(df: pd.DataFrame) -> tuple[bool, str | None, int]:
-    """Inserta un DataFrame completo en Supabase por lotes de 50, limpiando NaN, forzando tipos y evitando IDs duplicados."""
+    """Inserta un DataFrame en Supabase forzando IDs nuevos (evita duplicados siempre)."""
     if df.empty:
         return False, "El archivo está vacío.", 0
     try:
-        # Renombrar columnas al formato de la BD
         db_df = df.rename(columns=TO_DB)
         
-        # --- FIX: Forzar tipos correctos ---
+        # Forzar tipos correctos
         if "satisfaccion_1_al_5" in db_df.columns:
             db_df["satisfaccion_1_al_5"] = pd.to_numeric(
                 db_df["satisfaccion_1_al_5"], errors="coerce"
             ).astype("Int64")
-        if "id_cliente" in db_df.columns:
-            db_df["id_cliente"] = pd.to_numeric(
-                db_df["id_cliente"], errors="coerce"
-            ).astype("Int64")
         
-        # --- FIX: Renumerar IDs para evitar duplicados ---
+        # Obtener el siguiente ID disponible consultando la BD EN VIVO
         current_df, _ = load_data()
-        existing_ids = set(current_df["ID_Cliente"].dropna().astype(int).tolist()) if not current_df.empty else set()
-        next_available_id = (max(existing_ids) + 1) if existing_ids else 1
+        if not current_df.empty and "ID_Cliente" in current_df.columns:
+            existing_max = int(current_df["ID_Cliente"].dropna().max())
+        else:
+            existing_max = 0
+        next_available_id = existing_max + 1
         
-        # Limpiar y renumerar cada registro
+        # FORZAR: todos los registros reciben un ID nuevo (ignoramos el ID del CSV)
         records = []
         for _, row in db_df.iterrows():
-            record = {col: _clean_value(row[col]) for col in db_df.columns}
-            
-            # Si el ID ya existe, asignar uno nuevo
-            if record.get("id_cliente") is not None and int(record["id_cliente"]) in existing_ids:
-                record["id_cliente"] = next_available_id
-                next_available_id += 1
-            elif record.get("id_cliente") is not None:
-                existing_ids.add(int(record["id_cliente"]))
-                next_available_id = max(next_available_id, int(record["id_cliente"]) + 1)
-            
+            record = {col: _clean_value(row[col]) for col in db_df.columns if col != "id_cliente"}
+            record["id_cliente"] = next_available_id
+            next_available_id += 1
             records.append(record)
         
+        # Insertar por lotes de 50
         count = 0
         for i in range(0, len(records), 50):
             batch = records[i:i+50]
@@ -173,7 +165,6 @@ def generar_datos_sinteticos(n: int) -> pd.DataFrame:
         })
 
     df = pd.DataFrame(registros)
-    # FORZAR Int64 para que nulos sean pd.NA y no NaN
     df["Satisfaccion_1_al_5"] = df["Satisfaccion_1_al_5"].astype("Int64")
     df["ID_Cliente"] = df["ID_Cliente"].astype("Int64")
     return df
