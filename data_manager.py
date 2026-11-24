@@ -37,33 +37,27 @@ def _conn() -> Client:
 
 def _clean_value(val):
     """Convierte cualquier valor a tipo nativo JSON-safe (elimina NaN, inf, pd.NA)."""
-    # 1. None literal
     if val is None:
         return None
-    # 2. pd.NA y pd.NaT
     try:
         if val is pd.NA or val is pd.NaT:
             return None
     except Exception:
         pass
-    # 3. Floats (NaN, inf)
     if isinstance(val, (float, np.floating)):
         v = float(val)
         if math.isnan(v) or math.isinf(v):
             return None
         return v
-    # 4. Enteros y booleanos numpy
     if isinstance(val, (np.integer,)):
         return int(val)
     if isinstance(val, (np.bool_,)):
         return bool(val)
-    # 5. Chequeo genérico de pandas para nulos
     try:
         if pd.isnull(val):
             return None
     except (TypeError, ValueError):
         pass
-    # 6. Todo lo demás (strings, ints python)
     return val
 
 
@@ -99,11 +93,22 @@ def save_record(record: dict) -> tuple[bool, str | None]:
 
 
 def bulk_insert(df: pd.DataFrame) -> tuple[bool, str | None, int]:
-    """Inserta un DataFrame completo en Supabase por lotes de 50, limpiando NaN."""
+    """Inserta un DataFrame completo en Supabase por lotes de 50, limpiando NaN y forzando tipos."""
     if df.empty:
         return False, "El archivo está vacío.", 0
     try:
+        # Renombrar columnas al formato de la BD
         db_df = df.rename(columns=TO_DB)
+        
+        # --- FIX CRÍTICO: Forzar tipos correctos antes de enviar ---
+        if "satisfaccion_1_al_5" in db_df.columns:
+            db_df["satisfaccion_1_al_5"] = pd.to_numeric(
+                db_df["satisfaccion_1_al_5"], errors="coerce"
+            ).astype("Int64")
+        if "id_cliente" in db_df.columns:
+            db_df["id_cliente"] = pd.to_numeric(
+                db_df["id_cliente"], errors="coerce"
+            ).astype("Int64")
         
         # Limpiar cada celda individualmente con _clean_value
         records = []
