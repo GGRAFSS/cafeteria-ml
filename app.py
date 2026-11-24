@@ -20,7 +20,7 @@ st.write(f"🔍 Versión data_manager: {'CON FIX' if hasattr(dm, '_clean_value')
 # CONFIGURACIÓN DE PÁGINA
 # ============================================================
 st.set_page_config(
-    page_title="Cafetería Universitaria — ML",
+    page_title="Cafetería Universitaria — MLL",
     page_icon="☕",
     layout="wide",
     initial_sidebar_state="expanded",
