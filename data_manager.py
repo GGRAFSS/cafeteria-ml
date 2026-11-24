@@ -1,0 +1,192 @@
+"""
+Gestión del dataset en Supabase: carga, guardado, validación de reglas de captura
+y limpieza (outliers inyectados intencionalmente para la práctica).
+Usa el cliente oficial supabase-py (más estable que st-supabase-connection).
+"""
+import streamlit as st
+import pandas as pd
+from supabase import create_client, Client
+
+COLUMNS = [
+    "ID_Cliente", "Hora_Llegada", "Tiempo_Espera_Min", "Tiempo_Servicio_Min",
+    "Tipo_Cliente", "Metodo_Pago", "Consumo_Total_MXN",
+    "Satisfaccion_1_al_5", "Es_Hora_Pico",
+]
+
+TO_DB = {
+    "ID_Cliente": "id_cliente",
+    "Hora_Llegada": "hora_llegada",
+    "Tiempo_Espera_Min": "tiempo_espera_min",
+    "Tiempo_Servicio_Min": "tiempo_servicio_min",
+    "Tipo_Cliente": "tipo_cliente",
+    "Metodo_Pago": "metodo_pago",
+    "Consumo_Total_MXN": "consumo_total_mxn",
+    "Satisfaccion_1_al_5": "satisfaccion_1_al_5",
+    "Es_Hora_Pico": "es_hora_pico",
+}
+FROM_DB = {v: k for k, v in TO_DB.items()}
+
+
+@st.cache_resource
+def _conn() -> Client:
+    """Conexión cacheada a Supabase usando supabase-py directamente."""
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+
+def load_data() -> tuple[pd.DataFrame, str | None]:
+    """
+    Carga todos los registros desde Supabase.
+    Devuelve (df, error). Si no hay error, error es None.
+    """
+    try:
+        res = _conn().table("cafeteria").select("*").execute()
+    except Exception as e:
+        return pd.DataFrame(columns=COLUMNS), str(e)
+
+    if not res.data:
+        return pd.DataFrame(columns=COLUMNS), None
+
+    try:
+        df = pd.DataFrame(res.data).rename(columns=FROM_DB)
+
+        if "Satisfaccion_1_al_5" in df.columns:
+            df["Satisfaccion_1_al_5"] = pd.to_numeric(
+                df["Satisfaccion_1_al_5"], errors="coerce"
+            ).astype("Int64")
+        if "ID_Cliente" in df.columns:
+            df["ID_Cliente"] = pd.to_numeric(
+                df["ID_Cliente"], errors="coerce"
+            ).astype("Int64")
+
+        if "ID_Cliente" in df.columns and not df.empty:
+            df = df.sort_values("ID_Cliente").reset_index(drop=True)
+
+        return df[COLUMNS], None
+    except Exception as e:
+        return pd.DataFrame(columns=COLUMNS), f"Error procesando datos: {e}"
+
+
+def save_record(record: dict) -> tuple[bool, str | None]:
+    """
+    Inserta un nuevo registro en Supabase.
+    Devuelve (ok, error). Si ok=True, error es None.
+    """
+    try:
+        payload = {TO_DB[k]: record[k] for k in COLUMNS if k in record}
+        for k, v in list(payload.items()):
+            if pd.isna(v):
+                payload[k] = None
+        _conn().table("cafeteria").insert(payload).execute()
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+def next_id(df: pd.DataFrame) -> int:
+    """Genera el siguiente ID autoincremental (ID de negocio)."""
+    if df.empty or df["ID_Cliente"].dropna().empty:
+        return 1
+    return int(df["ID_Cliente"].max()) + 1
+
+
+def validate_record(record: dict) -> list[str]:
+    """Devuelve lista de errores. Vacía = registro válido."""
+    errors = []
+
+    h = record["Hora_Llegada"]
+    if not (7.00 <= h <= 11.00):
+        errors.append("Hora_Llegada debe estar entre 7.00 y 11.00.")
+
+    if record["Tiempo_Espera_Min"] <= 0:
+        errors.append("Tiempo_Espera_Min debe ser > 0.")
+
+    if record["Tiempo_Servicio_Min"] <= 0:
+        errors.append("Tiempo_Servicio_Min debe ser > 0 (revisar error de captura).")
+
+    if record["Tipo_Cliente"] not in ("Estudiante", "Profesor", "Administrativo"):
+        errors.append("Tipo_Cliente inválido.")
+
+    if record["Metodo_Pago"] not in (None, "", "Efectivo", "Tarjeta", "App"):
+        errors.append("Metodo_Pago inválido.")
+
+    if record["Consumo_Total_MXN"] < 0:
+        errors.append("Consumo_Total_MXN debe ser >= 0.")
+
+    sat = record["Satisfaccion_1_al_5"]
+    if sat is not None and sat != "" and sat not in (1, 2, 3, 4, 5):
+        errors.append("Satisfaccion_1_al_5 debe estar entre 1 y 5.")
+
+    if record["Es_Hora_Pico"] not in ("Sí", "No"):
+        errors.append("Es_Hora_Pico debe ser 'Sí' o 'No'.")
+
+    return errors
+
+
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Elimina outliers para análisis (servicio <= 0 y consumo > 250)."""
+    if df.empty:
+        return df.copy()
+    clean = df.copy()
+    clean = clean[clean["Tiempo_Servicio_Min"] > 0]
+    clean = clean[clean["Consumo_Total_MXN"] <= 250]
+    return clean.reset_index(drop=True)
+import random
+import numpy as np
+
+# ... (tu código anterior de load_data, save_record, etc.)
+
+def bulk_insert(df: pd.DataFrame) -> tuple[bool, str | None, int]:
+    """Inserta un DataFrame completo en Supabase por lotes de 50."""
+    if df.empty:
+        return False, "El archivo está vacío.", 0
+    try:
+        # Renombrar columnas al formato de la BD
+        db_df = df.rename(columns=TO_DB)
+        # Convertir NaNs a None para que Supabase no marque error
+        records = db_df.where(pd.notnull(db_df), None).to_dict(orient="records")
+        
+        count = 0
+        for i in range(0, len(records), 50):
+            batch = records[i:i+50]
+            _conn().table("cafeteria").insert(batch).execute()
+            count += len(batch)
+        return True, None, count
+    except Exception as e:
+        return False, str(e), 0
+
+def generar_datos_sinteticos(n: int) -> pd.DataFrame:
+    """Genera n registros sintéticos basados en la lógica original de la cafetería."""
+    random.seed(42)
+    tipos = ["Estudiante", "Profesor", "Administrativo"]
+    pesos_tipo = [0.7, 0.2, 0.1]
+    pagos = ["Efectivo", "Tarjeta", "App", None]
+    pesos_pago = [0.30, 0.35, 0.25, 0.10]
+    
+    registros = []
+    # Obtenemos el ID máximo actual para no repetir
+    current_df, _ = load_data()
+    start_id = next_id(current_df) if not current_df.empty else 1
+    
+    for i in range(start_id, start_id + n):
+        tipo = random.choices(tipos, weights=pesos_tipo)[0]
+        hora = round(random.triangular(7.0, 11.0, 8.5), 2)
+        espera = round(min(max(random.expovariate(1/4), 0.5), 25.0), 1)
+        servicio = round(max(random.gauss(4, 1.5), 0.5), 1)
+        base_consumo = {"Estudiante": 45, "Profesor": 70, "Administrativo": 55}[tipo]
+        consumo = round(max(random.gauss(base_consumo, 15), 5.0), 1)
+        sat = random.choices([1,2,3,4,5, None], weights=[0.05,0.10,0.20,0.35,0.25, 0.05])[0]
+        
+        registros.append({
+            "ID_Cliente": i,
+            "Hora_Llegada": hora,
+            "Tiempo_Espera_Min": espera,
+            "Tiempo_Servicio_Min": servicio,
+            "Tipo_Cliente": tipo,
+            "Metodo_Pago": random.choices(pagos, weights=pesos_pago)[0],
+            "Consumo_Total_MXN": consumo,
+            "Satisfaccion_1_al_5": sat,
+            "Es_Hora_Pico": "Sí" if 8.0 <= hora <= 9.0 else "No",
+        })
+    return pd.DataFrame(registros)
