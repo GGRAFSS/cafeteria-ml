@@ -2,7 +2,7 @@
 
 Sistema web desarrollado en **Python + Streamlit** que aplica técnicas de Aprendizaje Automático sobre datos de clientes de una cafetería universitaria (7:00 AM – 11:00 AM). Los datos se almacenan en **Supabase (PostgreSQL)** y la app está desplegada en **Streamlit Community Cloud**.
 
-> **🔗 App en vivo:** [https://cafeteria-ml-aprendizaje-automatico.streamlit.app](https://cafeteria-ml-aprendizaje-automatico.streamlit.app) 
+> **🔗 App en vivo:** [https://cafeteria-ml-aprendizaje-auto.streamlit.app](https://cafeteria-ml-aprendizaje-auto.streamlit.app) 
 > **📦 Repositorio:** [https://github.com/GGRAFSS/cafeteria-ml](https://github.com/GGRAFSS/cafeteria-ml)
 
 ---

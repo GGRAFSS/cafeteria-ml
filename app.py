@@ -141,9 +141,37 @@ with tabs[0]:
                     st.error(f"Error: {err}")
 
     # --- CSV / EXCEL ---
+        # --- CSV / EXCEL ---
     with tab_file:
         st.markdown("Sube un archivo con las **mismas columnas** que el dataset original.")
-        uploaded_file = st.file_uploader("Elige un archivo CSV o Excel", type=["csv", "xlsx"])
+        
+        # --- NUEVO: Generador de CSV de prueba ---
+        st.markdown("#### 🧪 ¿No tienes un archivo? Genera uno de prueba")
+        c_gen1, c_gen2 = st.columns([1, 2])
+        with c_gen1:
+            n_csv = st.number_input("Cantidad de registros:", min_value=10, max_value=500, value=50, step=10, key="gen_csv_n")
+        with c_gen2:
+            st.write("") # Espacio para alinear el botón
+            st.write("")
+            if st.button("📄 Generar CSV de Prueba", use_container_width=True):
+                df_prueba = dm.generar_datos_sinteticos(n_csv)
+                csv_prueba = df_prueba.to_csv(index=False).encode("utf-8")
+                st.session_state["csv_prueba"] = csv_prueba
+                st.success(f"✅ CSV con {n_csv} registros generado. Descárgalo abajo.")
+        
+        if "csv_prueba" in st.session_state:
+            st.download_button(
+                label="⬇️ Descargar CSV generado",
+                data=st.session_state["csv_prueba"],
+                file_name="datos_prueba_cafeteria.csv",
+                mime="text/csv",
+                key="dl_csv_prueba"
+            )
+        
+        st.divider()
+        # --- FIN GENERADOR ---
+        
+        uploaded_file = st.file_uploader("O sube un archivo CSV o Excel existente", type=["csv", "xlsx"])
         if uploaded_file is not None:
             try:
                 if uploaded_file.name.endswith('.csv'):
