@@ -93,14 +93,14 @@ def save_record(record: dict) -> tuple[bool, str | None]:
 
 
 def bulk_insert(df: pd.DataFrame) -> tuple[bool, str | None, int]:
-    """Inserta un DataFrame completo en Supabase por lotes de 50, limpiando NaN y forzando tipos."""
+    """Inserta un DataFrame completo en Supabase por lotes de 50, limpiando NaN, forzando tipos y evitando IDs duplicados."""
     if df.empty:
         return False, "El archivo está vacío.", 0
     try:
         # Renombrar columnas al formato de la BD
         db_df = df.rename(columns=TO_DB)
         
-        # --- FIX CRÍTICO: Forzar tipos correctos antes de enviar ---
+        # --- FIX: Forzar tipos correctos ---
         if "satisfaccion_1_al_5" in db_df.columns:
             db_df["satisfaccion_1_al_5"] = pd.to_numeric(
                 db_df["satisfaccion_1_al_5"], errors="coerce"
@@ -110,10 +110,24 @@ def bulk_insert(df: pd.DataFrame) -> tuple[bool, str | None, int]:
                 db_df["id_cliente"], errors="coerce"
             ).astype("Int64")
         
-        # Limpiar cada celda individualmente con _clean_value
+        # --- FIX: Renumerar IDs para evitar duplicados ---
+        current_df, _ = load_data()
+        existing_ids = set(current_df["ID_Cliente"].dropna().astype(int).tolist()) if not current_df.empty else set()
+        next_available_id = (max(existing_ids) + 1) if existing_ids else 1
+        
+        # Limpiar y renumerar cada registro
         records = []
         for _, row in db_df.iterrows():
             record = {col: _clean_value(row[col]) for col in db_df.columns}
+            
+            # Si el ID ya existe, asignar uno nuevo
+            if record.get("id_cliente") is not None and int(record["id_cliente"]) in existing_ids:
+                record["id_cliente"] = next_available_id
+                next_available_id += 1
+            elif record.get("id_cliente") is not None:
+                existing_ids.add(int(record["id_cliente"]))
+                next_available_id = max(next_available_id, int(record["id_cliente"]) + 1)
+            
             records.append(record)
         
         count = 0
