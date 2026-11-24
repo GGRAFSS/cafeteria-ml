@@ -1,0 +1,7 @@
+ID_Cliente,Hora_Llegada,Tiempo_Espera_Min,Tiempo_Servicio_Min,Tipo_Cliente,Metodo_Pago,Consumo_Total_MXN,Satisfaccion_1_al_5,Es_Hora_Pico
+1,8.25,3.5,4.0,Estudiante,Tarjeta,45.5,5,Sí
+2,8.50,4.2,3.8,Profesor,Efectivo,70.0,4,Sí
+3,9.00,5.0,4.5,Estudiante,App,35.0,,Sí
+4,9.25,2.5,3.0,Administrativo,Tarjeta,55.5,3,No
+5,9.50,6.0,5.0,Estudiante,Efectivo,40.0,4,No
+6,10.00,3.0,4.0,Profesor,App,65.0,5,No
