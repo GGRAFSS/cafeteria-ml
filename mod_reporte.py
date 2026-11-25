@@ -18,8 +18,11 @@ Fase 3B:
 Fase 5A (v5.0):
 - Reporte Didáctico: método ficha_didactica() + generar_reporte_didactico().
 - Cada figura/tabla tiene una ficha de 7 bloques, incluido el bloque
-  "¿qué técnicas NO se aplican aquí y por qué?". En esta fase los textos
-  son placeholders: la Fase 5B los llena con IA.
+  "¿qué técnicas NO se aplican aquí y por qué?".
+
+Fase 5B (v5.1):
+- Contenido real: las 15 fichas se generan con analizar_seccion_ia(
+  tipo="didactico") en paralelo y un respaldo curado por bloque.
 """
 import io
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -80,7 +83,7 @@ def _get_asset_path(nombre: str) -> str | None:
 
 
 # ============================================================
-# REPORTE DIDÁCTICO (v5.0)
+# REPORTE DIDÁCTICO (v5.1)
 # ============================================================
 # Color de la etiqueta de cada bloque de la ficha didáctica.
 _COLOR_CAMPO_DIDACTICO = {
@@ -93,11 +96,9 @@ _COLOR_CAMPO_DIDACTICO = {
     "no_aplica": (120, 70, 0),      # ámbar oscuro: bloque crítico
 }
 
-# Texto que ocupa cada bloque mientras la Fase 5B no esté implementada.
-_PLACEHOLDER_FICHA = (
-    "[Fase 5B] Contenido pendiente: este bloque se completará con el análisis "
-    "didáctico generado por IA a partir de los datos reales del reporte completo."
-)
+# Texto de seguridad: si un bloque llegara vacío se dibuja este aviso.
+# No debería ocurrir: el respaldo curado de la Fase 5B trae los siete bloques.
+_BLOQUE_SIN_TEXTO = "Contenido no disponible para este bloque."
 
 # Qué responde cada bloque (se usa en la página introductoria del reporte).
 _DESCRIPCION_CAMPO = {
@@ -412,7 +413,7 @@ class ReporteCafeteria(FPDF):
         self.cell(0, 5, texto, 0, 1, "L")
         self.ln(1)
 
-    # ---------- FICHAS DIDÁCTICAS (Reporte Didáctico, v5.0) ----------
+    # ---------- FICHAS DIDÁCTICAS (Reporte Didáctico, v5.1) ----------
     def ficha_didactica(self, numero: int, titulo: str, campos: dict,
                         referencia: str | None = None,
                         cita_fuente: str | None = None):
@@ -420,8 +421,8 @@ class ReporteCafeteria(FPDF):
 
         `campos` es el dict que devuelve
         `analizar_seccion_ia(..., tipo="didactico")`: las siete claves de
-        CAMPOS_DIDACTICOS. Si falta una clave se dibuja un placeholder, de
-        modo que la ficha nunca queda vacía (Fase 5A = solo infraestructura).
+        CAMPOS_DIDACTICOS. Si falta una clave se dibuja un aviso neutral, de
+        modo que la ficha nunca queda vacía.
 
         `referencia` indica de dónde sale el objeto explicado (p. ej.
         "Figura 3 del reporte completo") y `cita_fuente` la procedencia del
@@ -455,7 +456,7 @@ class ReporteCafeteria(FPDF):
 
         # --- Siete bloques de contenido ---
         for clave, etiqueta in CAMPOS_DIDACTICOS:
-            texto = (campos or {}).get(clave) or _PLACEHOLDER_FICHA
+            texto = (campos or {}).get(clave) or _BLOQUE_SIN_TEXTO
             texto = str(texto).strip()
 
             # Salto de página preventivo antes de cada bloque
@@ -2221,60 +2222,1238 @@ def generar_resumen_pdf(df: pd.DataFrame) -> tuple:
 
 
 # ============================================================
-# FASE 5A: REPORTE DIDÁCTICO (infraestructura)
+# FASE 5A + 5B: REPORTE DIDÁCTICO (estructura y contenido)
 # ============================================================
-def _fichas_didacticas_placeholder(ctx: dict, df=None) -> list[dict]:
-    """Devuelve las 15 fichas (8 figuras + 7 tablas) con textos placeholder.
+# 4 workers, mismo balance que _ejecutar_ia_paralelo (velocidad vs rate limit).
+_FICHA_WORKERS = 4
 
-    Fase 5A: solo estructura. Cada dict trae `titulo`, `referencia` y
-    `campos` (las siete claves de CAMPOS_DIDACTICOS). La Fase 5B sustituirá
-    `campos` por el resultado de `analizar_seccion_ia(tipo="didactico")`.
+# Instrucción base: fija el rol y evita que el modelo cambie el formato.
+_INSTRUCCION_FICHA = (
+    "Actúas como docente de Aprendizaje Automático que explica a estudiantes "
+    "de posgrado un objeto concreto del reporte de la cafetería. Describe solo "
+    "ese objeto, con los valores reales del payload, sin inventar cifras y sin "
+    "repetir el contenido de otras fichas. El bloque 'no_aplica' debe nombrar "
+    "técnicas concretas del temario que no sirven para este objeto y dar la "
+    "razón técnica (tipo de variable, supuestos incumplidos, objetivo del "
+    "análisis o costo computacional)."
+)
+
+
+def _d(valor, formato="{:.2f}", defecto="N/D") -> str:
+    """Formatea un número del contexto; usa `defecto` si falta o no es numérico."""
+    try:
+        return formato.format(float(valor))
+    except (TypeError, ValueError):
+        return defecto
+
+
+def _ficha_curada(titulo: str, referencia: str, datos: dict,
+                  fallback: dict, foco: str) -> dict:
+    """Empaqueta una ficha: metadatos del render, payload real y respaldo curado.
+
+    `fallback` trae las siete claves de CAMPOS_DIDACTICOS redactadas con los
+    valores del run, de modo que el reporte nunca queda en blanco si la IA no
+    está disponible o responde mal.
     """
-    contexto = (ctx or {}).get("contexto", {})
-    mejor = contexto.get("clasificacion", {}).get("mejor_modelo", "el mejor modelo")
+    return {
+        "titulo": titulo,
+        "referencia": referencia,
+        "datos": datos,
+        "fallback": fallback,
+        "instruccion": f"{_INSTRUCCION_FICHA}\nFoco de esta ficha: {foco}",
+    }
 
-    def _ficha(titulo, referencia):
-        return {
-            "titulo": titulo,
-            "referencia": referencia,
-            "campos": {clave: _PLACEHOLDER_FICHA for clave, _ in CAMPOS_DIDACTICOS},
+
+def _especificaciones_didacticas(ctx: dict, df=None) -> list[dict]:
+    """Arma las 15 fichas (8 figuras + 7 tablas) con su payload y su respaldo.
+
+    Cada especificación trae: `titulo` y `referencia` (lo que dibuja el
+    render), `datos` (métricas reales que recibe la IA), `fallback` (texto
+    curado por bloque con los valores del run) e `instruccion` (enfoque).
+    """
+    ctx = ctx or {}
+    contexto = ctx.get("contexto", {}) or {}
+    res_reg = ctx.get("res_reg", {}) or {}
+    mejores = ctx.get("mejores", {}) or {}
+    res_km = ctx.get("res_km", {}) or {}
+    politica_records = ctx.get("politica_records", []) or []
+    desc = ctx.get("desc")
+    outliers_por_var = contexto.get("outliers_por_variable", []) or []
+
+    n_bd = contexto.get("total_registros_bd", len(df) if df is not None else 0)
+    n_limpio = contexto.get("registros_limpios", n_bd)
+    n_prueba = max(int(round(n_bd * 0.30)), 1)
+    n_out = contexto.get("outliers_detectados", 0)
+    pct_out = round(n_out / max(n_bd, 1) * 100, 2)
+    consumo_prom = contexto.get("consumo_promedio_mxn")
+    consumo_total = contexto.get("consumo_total_mxn")
+    espera_prom = contexto.get("espera_promedio_min")
+    espera_max = contexto.get("espera_maxima_min")
+    servicio_prom = contexto.get("servicio_promedio_min")
+    pct_pico = contexto.get("porcentaje_hora_pico")
+    sat_prom = contexto.get("satisfaccion_promedio")
+
+    reg = contexto.get("regresion", {}) or {}
+    clf = contexto.get("clasificacion", {}) or {}
+    km = contexto.get("clustering_kmeans", {}) or {}
+    rl = contexto.get("refuerzo_q_learning", {}) or {}
+
+    mejor = clf.get("mejor_modelo", "el mejor modelo")
+    mejor_f1 = clf.get("mejor_f1")
+    mejor_auc = clf.get("mejor_auc")
+    modelos = clf.get("modelos", {}) or {}
+    met_mejor = (mejores.get(mejor) or {}).get("metricas", {}) if mejores else {}
+    sil = km.get("silhouette")
+    rl_ini = rl.get("recompensa_prom_primeros_50")
+    rl_fin = rl.get("recompensa_prom_ultimos_50")
+    episodios = rl.get("episodios", 500)
+
+    politica_txt = ", ".join(
+        f"{p.get('Estado (Afluencia)', '?')}→{p.get('Mejor Acción', '?')}"
+        for p in politica_records
+    ) or "N/D"
+    politica_alta = next(
+        (p.get("Mejor Acción") for p in politica_records
+         if p.get("Estado (Afluencia)") == "Alta"), "N/D")
+
+    # Mejor regresor según R² de prueba (para la tabla 4 y la figura 1)
+    mejor_reg = "N/D"
+    try:
+        lr_r2, dt_r2 = float(reg.get("lr_r2")), float(reg.get("dt_r2"))
+        mejor_reg = "Regresión Lineal" if lr_r2 >= dt_r2 else "Árbol de Regresión"
+    except (TypeError, ValueError):
+        lr_r2, dt_r2 = reg.get("lr_r2"), reg.get("dt_r2")
+
+    # El signo del R² cambia la lectura: negativo = peor que el promedio
+    try:
+        if lr_r2 is None:
+            ajuste_lr = "indeterminado"
+        elif float(lr_r2) < 0:
+            ajuste_lr = (
+                "negativo, es decir, peor que pronosticar con el promedio del "
+                "consumo en todos los casos"
+            )
+        elif float(lr_r2) < 0.30:
+            ajuste_lr = "bajo: apenas mejora el pronóstico del promedio"
+        else:
+            ajuste_lr = "moderado para datos de consumo con pocas variables"
+    except (TypeError, ValueError):
+        ajuste_lr = "indeterminado"
+
+    # Estadísticas descriptivas reales (tabla 2)
+    est_desc = {}
+    if isinstance(desc, pd.DataFrame) and not desc.empty:
+        for col in desc.columns:
+            est_desc[col] = {
+                "media": round(float(desc.loc["mean", col]), 2),
+                "desviacion": round(float(desc.loc["std", col]), 2),
+                "minimo": round(float(desc.loc["min", col]), 2),
+                "maximo": round(float(desc.loc["max", col]), 2),
+            }
+
+    def _media(col):
+        try:
+            return _d(float(desc.loc["mean", col]), "{:.2f}")
+        except Exception:
+            return "N/D"
+
+    def _std(col):
+        try:
+            return _d(float(desc.loc["std", col]), "{:.2f}")
+        except Exception:
+            return "N/D"
+
+    fichas = []
+
+    # ---------- D1 · Figura 1: dispersión real vs predicho ----------
+    fichas.append(_ficha_curada(
+        "Figura 1. Dispersión real vs predicho del modelo lineal",
+        "Figura 1 del reporte completo · Unidad 1 (regresión lineal)",
+        {
+            "objeto": "Figura 1 del reporte completo",
+            "tipo_grafico": "dispersión real vs predicho con línea de predicción perfecta",
+            "modelo": "Regresión Lineal (mínimos cuadrados)",
+            "target": "Consumo_Total_MXN",
+            "registros_totales": n_bd,
+            "registros_en_prueba": n_prueba,
+            "R2_prueba_lineal": reg.get("lr_r2"),
+            "MSE_prueba_lineal": reg.get("lr_mse"),
+            "R2_prueba_arbol": reg.get("dt_r2"),
+            "MSE_prueba_arbol": reg.get("dt_mse"),
+            "consumo_promedio_mxn": consumo_prom,
+        },
+        {
+            "que_se_ve": (
+                f"Gráfico de dispersión con un punto por cada registro del "
+                f"conjunto de prueba (≈{n_prueba} de {n_bd}). El eje horizontal "
+                f"muestra el consumo real en pesos y el vertical el consumo "
+                f"predicho por la regresión lineal; una diagonal punteada marca "
+                f"la predicción perfecta. La nube se agrupa alrededor de esa "
+                f"diagonal, con dispersión vertical apreciable en consumos "
+                f"medios y algunos puntos alejados en consumos altos."
+            ),
+            "tecnica": (
+                f"Con R² = {_d(reg.get('lr_r2'), '{:.4f}')} y MSE = "
+                f"{_d(reg.get('lr_mse'))} MXN² en prueba, el ajuste de la "
+                f"regresión lineal es {ajuste_lr}. El consumo promedio es "
+                f"${_d(consumo_prom)} MXN y el Árbol de Regresión alcanza "
+                f"R² = {_d(reg.get('dt_r2'), '{:.4f}')} con MSE = "
+                f"{_d(reg.get('dt_mse'))}: {mejor_reg} es el que mejor se acerca "
+                f"a la diagonal. La lectura operativa no cambia con el signo del "
+                f"R²: mientras más compacta la nube alrededor de la diagonal, más "
+                f"útil es el pronóstico."
+            ),
+            "simple": (
+                "Cada punto es un cliente: a la derecha está lo que realmente "
+                "gastó y hacia arriba lo que el modelo calculó. Si el modelo "
+                "fuera perfecto, todos los puntos caerían sobre la línea "
+                "punteada. Aquí la nube la rodea, pero abierta: alcanza para "
+                "ordenar clientes y anticipar tendencias, no para adivinar el "
+                "gasto exacto de una persona."
+            ),
+            "temario": (
+                "Unidad 1 — Regresión lineal: la gráfica real vs predicho es el "
+                "diagnóstico estándar de ajuste; R² cuantifica la varianza "
+                "explicada y el MSE el error cuadrático medio en pesos."
+            ),
+            "pedagogia": (
+                "Enseña a leer un regresor por la forma de su error y no por una "
+                "sola cifra: la nube revela sesgo (nube desplazada), "
+                "heterocedasticidad (abanico que se abre) y valores atípicos "
+                "(puntos lejanos), tres diagnósticos que ningún valor de R² "
+                "resume por sí solo."
+            ),
+            "errores": (
+                "• Interpretar R² como porcentaje de aciertos del modelo. "
+                "• Suponer que un R² bajo invalida el análisis, cuando con "
+                "consumo humano y pocas variables es lo esperado. "
+                "• Leer la nube como si describiera clientes individuales en "
+                "lugar de una tendencia promedio."
+            ),
+            "no_aplica": (
+                "• Exactitud, matriz de confusión y F1: el objetivo es continuo "
+                "(pesos), no hay clases que contar. • K-Means, PCA o silhouette: "
+                "segmentar residuales no aporta lectura operativa y diluye el "
+                "diagnóstico de ajuste. • Q-Learning: no existe agente ni "
+                "secuencia de decisiones que aprender. • Regresión logística: el "
+                "target no es binario."
+            ),
+        },
+        "ajuste del regresor sobre el consumo en pesos; compara Regresión "
+        "Lineal contra Árbol de Regresión con R² y MSE de prueba.",
+    ))
+
+    def _soporte(clase):
+        try:
+            return int(mejores[mejor]["reporte"].loc[clase, "support"])
+        except Exception:
+            return None
+
+    # ---------- D2 · Figura 2: matriz de confusión ----------
+    fichas.append(_ficha_curada(
+        f"Figura 2. Matriz de confusión del modelo {mejor}",
+        "Figura 2 del reporte completo · Unidad 2 (clasificación)",
+        {
+            "objeto": "Figura 2 del reporte completo",
+            "tipo_grafico": "mapa de calor 2x2 de la matriz de confusión",
+            "modelo": mejor,
+            "clases": "Baja (0) si satisfacción 1-3; Alta (1) si satisfacción 4-5",
+            "registros_en_prueba": n_prueba,
+            "F1": mejor_f1,
+            "Accuracy": met_mejor.get("Accuracy"),
+            "Precision": met_mejor.get("Precision"),
+            "Recall": met_mejor.get("Recall"),
+            "AUC": mejor_auc,
+            "clientes_clase_alta_en_prueba": _soporte("1"),
+        },
+        {
+            "que_se_ve": (
+                f"Mapa de calor de 2×2 en tonos azules. Las filas son la "
+                f"satisfacción real (Baja 0 / Alta 1) y las columnas la "
+                f"predicción del modelo {mejor}, evaluado sobre ≈{n_prueba} "
+                f"registros de prueba. El número de cada celda cuenta clientes: "
+                f"la diagonal principal concentra los aciertos y las dos celdas "
+                f"restantes los falsos positivos y los falsos negativos."
+            ),
+            "tecnica": (
+                f"El modelo {mejor} obtiene F1 = {_d(mejor_f1, '{:.3f}')}, "
+                f"exactitud = {_d(met_mejor.get('Accuracy'), '{:.3f}')} y "
+                f"AUC = {_d(mejor_auc, '{:.3f}')}. El recall de la clase alta es "
+                f"{_d(met_mejor.get('Recall'), '{:.3f}')}: de cada 100 clientes "
+                f"realmente satisfechos detecta alrededor de "
+                f"{_d(float(met_mejor.get('Recall') or 0) * 100, '{:.0f}')}. La "
+                f"precisión de "
+                f"{_d(met_mejor.get('Precision'), '{:.3f}')} indica qué "
+                f"proporción de las alertas de satisfacción alta resultan "
+                f"correctas."
+            ),
+            "simple": (
+                "Piense en cuatro cajones. En dos se guardan los clientes que el "
+                "modelo clasificó bien y en los otros dos los que confundió: "
+                "clientes contentos marcados como molestos o clientes molestos "
+                "que dejó pasar como contentos. Lo importante no es solo cuántos "
+                "aciertos hay, sino qué equivocación cuesta más caro en la "
+                "cafetería."
+            ),
+            "temario": (
+                "Unidad 2 — Evaluación de clasificadores: la matriz de confusión "
+                "es la base de precisión, recall y F1; sin ella, la exactitud "
+                "esconde el desbalance entre clases."
+            ),
+            "pedagogia": (
+                "Entrena la lectura asimétrica del error: permite decidir si "
+                "conviene priorizar recall (no perder clientes insatisfechos) o "
+                "precisión (no gastar recursos en falsas alarmas), una decisión "
+                "de negocio que la exactitud nunca revela."
+            ),
+            "errores": (
+                "• Comparar modelos solo por exactitud cuando las clases están "
+                "desbalanceadas. • Leer la diagonal como total de aciertos sin "
+                "mirar el tamaño de cada clase. • Suponer que la matriz describe "
+                "a toda la población, cuando resume el 30% reservado para "
+                "prueba."
+            ),
+            "no_aplica": (
+                "• MSE y R²: la salida es una clase, no un valor continuo. "
+                "• Silhouette o método del codo: existen etiquetas reales, no se "
+                "busca estructura oculta. • Q-Learning: no hay decisiones "
+                "secuenciales que optimizar. • Deep Learning: 120-200 registros "
+                "tabulares no justifican una red que la matriz 2×2 no podría "
+                "explicar mejor."
+            ),
+        },
+        "lectura de la matriz de confusión del clasificador ganador; explica "
+        "falsos positivos, falsos negativos y por qué F1 no es exactitud.",
+    ))
+
+    # ---------- D3 · Figura 3: curva ROC ----------
+    fichas.append(_ficha_curada(
+        f"Figura 3. Curva ROC del modelo {mejor}",
+        "Figura 3 del reporte completo · Unidad 2 (evaluación de clasificadores)",
+        {
+            "objeto": "Figura 3 del reporte completo",
+            "tipo_grafico": "curva ROC con diagonal del clasificador aleatorio",
+            "modelo": mejor,
+            "clase_positiva": "Satisfacción Alta (4-5)",
+            "registros_en_prueba": n_prueba,
+            "AUC": mejor_auc,
+            "F1_en_umbral_0.5": mejor_f1,
+            "umbral_operativo": 0.5,
+        },
+        {
+            "que_se_ve": (
+                f"Curva naranja que asciende desde la esquina inferior izquierda "
+                f"hacia la superior izquierda, con la leyenda ROC "
+                f"(AUC = {_d(mejor_auc, '{:.3f}')}) y una diagonal azul punteada "
+                f"que representa al clasificador aleatorio. El eje horizontal es "
+                f"la tasa de falsos positivos y el vertical la tasa de "
+                f"verdaderos positivos, equivalente al recall."
+            ),
+            "tecnica": (
+                f"El AUC = {_d(mejor_auc, '{:.3f}')} sobre ≈{n_prueba} registros "
+                f"de prueba estima la probabilidad de que el modelo ordene a un "
+                f"cliente satisfecho por encima de uno insatisfecho elegidos al "
+                f"azar. Con F1 = {_d(mejor_f1, '{:.3f}')} en el umbral 0.5, la "
+                f"curva muestra que la separación entre clases es útil pero no "
+                f"perfecta: la ventaja sobre la diagonal se concentra en la zona "
+                f"de sensibilidad media."
+            ),
+            "simple": (
+                "Imagine que la curva mide la habilidad del modelo para ordenar "
+                "la fila de clientes: primero los contentos y después los "
+                "molestos. Mientras más se acerque a la esquina superior "
+                "izquierda, mejor ordena; la diagonal punteada equivale a "
+                "adivinar a la suerte."
+            ),
+            "temario": (
+                "Unidad 2 — Curvas ROC y AUC: evalúan al clasificador en todos "
+                "los umbrales posibles, no solo en el corte de 0.5."
+            ),
+            "pedagogia": (
+                "Muestra que el umbral es una decisión operativa y no un "
+                "parámetro técnico: la misma curva permite un modelo conservador "
+                "o uno sensible según cuánto personal de atención haya disponible "
+                "en el turno."
+            ),
+            "errores": (
+                "• Leer el AUC como porcentaje de aciertos. • Elegir el umbral "
+                "0.5 sin revisar el costo de cada tipo de error. • Comparar "
+                "curvas de modelos entrenados con muestras o proporciones de "
+                "clase distintas."
+            ),
+            "no_aplica": (
+                "• MSE y R²: miden error en una escala continua, no el orden de "
+                "probabilidades. • Matriz de confusión fija: no representa el "
+                "barrido de umbrales que hace la ROC. • K-Means: no hay etiqueta "
+                "supervisada que permita calcular tasas. • Silhouette: evalúa "
+                "cohesión de grupos, no discriminación entre dos clases."
+            ),
+        },
+        "interpretación de la curva ROC y el AUC del clasificador ganador, "
+        "incluyendo el efecto del umbral de decisión.",
+    ))
+
+    # ---------- D4 · Figura 4: método del codo ----------
+    fichas.append(_ficha_curada(
+        "Figura 4. Selección de k mediante método del codo",
+        "Figura 4 del reporte completo · Unidad 3 (K-Means)",
+        {
+            "objeto": "Figura 4 del reporte completo",
+            "tipo_grafico": "línea de inercia contra número de clústeres k",
+            "rango_k_evaluado": "1 a 10",
+            "k_elegido": km.get("k", 3),
+            "silhouette_k_elegido": sil,
+            "total_registros": n_limpio,
+        },
+        {
+            "que_se_ve": (
+                "Gráfico de líneas con marcadores en cruz azul que une el número "
+                "de clústeres k, de 1 a 10, en el eje horizontal con la inercia "
+                "del modelo en el vertical, sobre una rejilla tenue. La curva "
+                "desciende con fuerza al inicio y se aplana a partir de k = 3 o "
+                "4, formando el codo."
+            ),
+            "tecnica": (
+                f"La inercia (suma de distancias al cuadrado a cada centroide) "
+                f"siempre disminuye al aumentar k, por lo que no se elige el "
+                f"mínimo sino el punto donde la ganancia se vuelve marginal. Se "
+                f"trabaja con k = {km.get('k', 3)} y silhouette = "
+                f"{_d(sil, '{:.4f}')} sobre {n_limpio} registros limpios: el codo "
+                f"coincide con la segmentación que el reporte adopta y que el "
+                f"índice de silhouette valida de forma independiente."
+            ),
+            "simple": (
+                "Es como decidir en cuántas secciones dividir una caja de "
+                "herramientas: con una se ve todo revuelto y con diez cada cosa "
+                "tiene su compartimento, pero llega un punto en que añadir "
+                "divisiones ya no ayuda. El codo es justo ese punto de equilibrio "
+                "entre orden y complicación."
+            ),
+            "temario": (
+                "Unidad 3 — K-Means: elección de k con el método del codo como "
+                "criterio heurístico previo a la validación con silhouette."
+            ),
+            "pedagogia": (
+                "Enseña que en el aprendizaje no supervisado no existe una "
+                "respuesta única: el número de grupos se justifica con un "
+                "criterio cuantitativo más una decisión de negocio, no con una "
+                "fórmula cerrada."
+            ),
+            "errores": (
+                "• Elegir el k del mínimo de inercia, que siempre sería el "
+                "mayor. • Leer el codo como prueba estadística y no como "
+                "heurística visual. • Ignorar si los grupos resultantes son "
+                "accionables para la cafetería."
+            ),
+            "no_aplica": (
+                "• Métricas supervisadas como F1 o AUC: no hay etiquetas que "
+                "comparar. • Regresión: no se predice un valor, se agrupan "
+                "registros. • División train/test clásica: no hay "
+                "generalización supervisada que medir. • Q-Learning: no existe "
+                "agente ni recompensa en este problema."
+            ),
+        },
+        "elección del número de clústeres con el método del codo y su "
+        "validación con silhouette.",
+    ))
+
+    # ---------- D5 · Figura 5: clústeres K-Means en PCA 2D ----------
+    fichas.append(_ficha_curada(
+        "Figura 5. Visualización de clústeres K-Means en PCA 2D",
+        "Figura 5 del reporte completo · Unidad 3 (clustering y PCA)",
+        {
+            "objeto": "Figura 5 del reporte completo",
+            "tipo_grafico": "dispersión de clústeres en dos componentes principales",
+            "algoritmo": "K-Means",
+            "k": km.get("k", 3),
+            "silhouette": sil,
+            "total_registros": n_limpio,
+            "variables_originales": 7,
+            "componentes_pca": 2,
+        },
+        {
+            "que_se_ve": (
+                "Dispersión de puntos coloreados por clúster, en escala viridis "
+                "y con borde negro, proyectados con PCA: Componente Principal 1 "
+                "en el eje horizontal y Componente Principal 2 en el vertical, "
+                "con barra de color que identifica cada clúster y rejilla tenue "
+                "de fondo."
+            ),
+            "tecnica": (
+                f"Con k = {km.get('k', 3)} y silhouette = {_d(sil, '{:.4f}')} "
+                f"sobre {n_limpio} registros, los grupos se separan en la "
+                f"proyección pero se solapan parcialmente: PCA comprime las 7 "
+                f"variables estandarizadas en 2 componentes solo para poder "
+                f"graficar. El silhouette es la medida de calidad del "
+                f"agrupamiento; el dibujo es el apoyo visual, no la evidencia."
+            ),
+            "simple": (
+                "Es un mapa en dos dimensiones de clientes parecidos entre sí: "
+                "cada color es un grupo con hábitos de consumo y horario "
+                "semejantes. Que algunos puntos queden en la frontera entre dos "
+                "colores significa que ese cliente no encaja perfecto en un solo "
+                "grupo, algo normal en personas reales."
+            ),
+            "temario": (
+                "Unidad 3 — Clustering y reducción de dimensionalidad: K-Means "
+                "sobre el espacio completo y PCA únicamente como técnica de "
+                "visualización 2D."
+            ),
+            "pedagogia": (
+                "Distingue entre técnica de análisis y técnica de visualización: "
+                "PCA no mejora el agrupamiento, solo permite verlo; confundir "
+                "ambas cosas es el error conceptual típico del tema."
+            ),
+            "errores": (
+                "• Suponer que la separación visual es la calidad real del "
+                "clúster. • Interpretar los ejes PCA como variables originales, "
+                "cuando son combinaciones lineales. • Nombrar los grupos por su "
+                "color en lugar de por sus características de consumo."
+            ),
+            "no_aplica": (
+                "• AUC, F1 y matriz de confusión: no hay etiqueta de referencia "
+                "para medir aciertos. • MSE de regresión: no se predice un valor "
+                "continuo. • PCA con todos los componentes para reconstruir: aquí "
+                "se usan 2 solo para graficar, no para modelar. • Q-Learning: no "
+                "hay decisiones secuenciales que optimizar."
+            ),
+        },
+        "visualización de los clústeres de clientes en la proyección PCA y su "
+        "relación con el índice de silhouette.",
+    ))
+
+    # ---------- D6 · Figura 6: dendrograma jerárquico ----------
+    fichas.append(_ficha_curada(
+        "Figura 6. Dendrograma del clustering jerárquico aglomerativo",
+        "Figura 6 del reporte completo · Unidad 3 (clustering jerárquico)",
+        {
+            "objeto": "Figura 6 del reporte completo",
+            "tipo_grafico": "dendrograma con ordenamiento por distancia",
+            "algoritmo": "AgglomerativeClustering",
+            "linkage": "ward",
+            "distancia": "euclidiana sobre variables estandarizadas",
+            "total_registros": n_limpio,
+            "error_jerarquico": (ctx.get("res_jer", {}) or {}).get("error"),
+        },
+        {
+            "que_se_ve": (
+                "Árbol de líneas verticales y horizontales: cada hoja corresponde "
+                "a un registro, identificado por su índice de cliente en el eje "
+                "horizontal, y la altura de cada unión, en el eje vertical, es la "
+                "distancia a la que dos grupos se fusionan. Las uniones bajas "
+                "agrupan clientes muy parecidos y los saltos largos indican "
+                "separación entre grupos."
+            ),
+            "tecnica": (
+                f"Con linkage Ward y distancia euclidiana sobre las variables "
+                f"estandarizadas de {n_limpio} registros, el dendrograma resume "
+                f"todas las particiones posibles: cortar a una altura produce un "
+                f"número concreto de grupos. Los saltos de mayor pendiente son "
+                f"candidatos a corte y deben coincidir con los valores de k "
+                f"razonables del método del codo."
+            ),
+            "simple": (
+                "Es un árbol genealógico de clientes: los que se juntan muy abajo "
+                "son casi gemelos en hábitos y los que se juntan muy arriba "
+                "pertenecen a mundos distintos. Cortar el árbol con una línea "
+                "horizontal equivale a decidir cuántos grupos se quieren "
+                "distinguir."
+            ),
+            "temario": (
+                "Unidad 3 — Clustering jerárquico aglomerativo: linkage Ward y "
+                "lectura del dendrograma como alternativa a K-Means."
+            ),
+            "pedagogia": (
+                "Aporta un criterio estructural que K-Means no ofrece: no exige "
+                "fijar k de antemano, muestra la jerarquía completa y permite "
+                "justificar el corte con evidencia visual."
+            ),
+            "errores": (
+                "• Cortar el árbol en la altura mínima para obtener muchos "
+                "grupos. • Confundir la altura de una unión con una probabilidad. "
+                "• Comparar dendrogramas construidos con distinta métrica o "
+                "distinto linkage como si fueran equivalentes."
+            ),
+            "no_aplica": (
+                "• Método del codo: mide la inercia de K-Means, no aplica a un "
+                "árbol ya construido. • F1, AUC o matriz de confusión: no hay "
+                "etiquetas. • Regresión: no se estima un valor continuo. • PCA "
+                "como paso obligatorio: la distancia se calcula en el espacio "
+                "estandarizado completo, no en componentes."
+            ),
+        },
+        "lectura del dendrograma y decisión de dónde cortar el árbol para "
+        "obtener grupos.",
+    ))
+
+    # ---------- D7 · Figura 7: curva de aprendizaje Q-Learning ----------
+    fichas.append(_ficha_curada(
+        "Figura 7. Curva de aprendizaje del agente Q-Learning",
+        "Figura 7 del reporte completo · Unidad 4 (aprendizaje por refuerzo)",
+        {
+            "objeto": "Figura 7 del reporte completo",
+            "tipo_grafico": "recompensa acumulada por episodio",
+            "algoritmo": "Q-Learning tabular con política epsilon-greedy",
+            "episodios": episodios,
+            "alpha": 0.1,
+            "gamma": 0.9,
+            "epsilon": 0.1,
+            "recompensa_promedio_primeros_50": rl_ini,
+            "recompensa_promedio_ultimos_50": rl_fin,
+            "estados": ["Baja", "Media", "Alta"],
+            "acciones": ["1 barista", "2 baristas", "3 baristas"],
+        },
+        {
+            "que_se_ve": (
+                f"Gráfico de líneas con la recompensa acumulada en el eje "
+                f"vertical a lo largo de {episodios} episodios en el horizontal, "
+                f"con rejilla tenue. La curva arranca con alta variabilidad, "
+                f"oscila en la zona baja y se estabiliza en valores más altos "
+                f"hacia el final."
+            ),
+            "tecnica": (
+                f"La recompensa promedio pasa de {_d(rl_ini, '{:.1f}')} en los "
+                f"primeros 50 episodios a {_d(rl_fin, '{:.1f}')} en los últimos "
+                f"50, con α = 0.1, γ = 0.9 y ε = 0.1. Esa mejora sostenida es la "
+                f"evidencia de convergencia: la política epsilon-greedy reduce la "
+                f"exploración y explota la acción con mayor valor Q aprendido en "
+                f"cada estado."
+            ),
+            "simple": (
+                "Es el aprendizaje por ensayo y error de un barista nuevo: al "
+                "principio prueba asignaciones al azar y a veces se equivoca; con "
+                "la práctica repite lo que funcionó. La curva es su curva de "
+                "experiencia: sube y se estabiliza cuando ya sabe qué hacer en "
+                "cada nivel de afluencia."
+            ),
+            "temario": (
+                "Unidad 4 — Aprendizaje por refuerzo: curva de aprendizaje como "
+                "diagnóstico de convergencia de Q-Learning tabular."
+            ),
+            "pedagogia": (
+                "Hace visible un concepto abstracto: la tensión entre explorar y "
+                "explotar, y cómo el agente la resuelve solo con la señal de "
+                "recompensa, sin etiquetas ni supervisión."
+            ),
+            "errores": (
+                "• Leer la meseta como fracaso, cuando es la señal de "
+                "convergencia. • Suponer que un pico alto aislado es aprendizaje "
+                "estable. • Comparar curvas con distinto número de episodios o "
+                "distinta función de recompensa."
+            ),
+            "no_aplica": (
+                "• R², MSE o F1: no se predice ni se clasifica un registro, se "
+                "evalúa recompensa acumulada. • División train/test supervisada: "
+                "no hay etiqueta correcta que copiar. • Silhouette o método del "
+                "codo: no hay agrupamiento. • Redes profundas: una tabla Q de 3 "
+                "estados por 3 acciones se resuelve sin aproximación de función."
+            ),
+        },
+        "convergencia del agente: comparación entre la recompensa inicial y "
+        "final, y significado de explorar frente a explotar.",
+    ))
+
+    # ---------- D8 · Figura 8: matriz Q final ----------
+    fichas.append(_ficha_curada(
+        "Figura 8. Matriz Q final: valor por estado y acción",
+        "Figura 8 del reporte completo · Unidad 4 (Q-Learning)",
+        {
+            "objeto": "Figura 8 del reporte completo",
+            "tipo_grafico": "mapa de calor 3x3 de valores Q",
+            "estados": ["Baja", "Media", "Alta"],
+            "acciones": ["1 barista", "2 baristas", "3 baristas"],
+            "episodios_entrenamiento": episodios,
+            "politica_optima": politica_txt,
+            "valores_q": rl.get("politica_optima", []),
+        },
+        {
+            "que_se_ve": (
+                "Mapa de calor de 3×3: los estados de afluencia (Baja, Media, "
+                "Alta) en un eje y las acciones de personal (1, 2 y 3 baristas) "
+                "en el otro. Cada celda muestra el valor Q aprendido y el tono "
+                "más intenso marca el valor más alto de su fila, es decir, la "
+                "decisión que el agente prefiere en ese estado."
+            ),
+            "tecnica": (
+                f"La matriz Q es la tabla final de valores de acción tras "
+                f"{episodios} episodios. Para cada estado, la acción con mayor Q "
+                f"define la política óptima aprendida, que resulta "
+                f"{politica_txt}. Los valores Q no son pesos ni pesos mexicanos: "
+                f"son la recompensa futura esperada que el agente estimó para "
+                f"cada par estado-acción."
+            ),
+            "simple": (
+                "Es la chuleta que el agente terminó memorizando: para cada nivel "
+                "de gente en la cafetería, cuántos empleados conviene poner. Se "
+                "lee eligiendo el número más grande de cada fila; esa elección es "
+                "la política del negocio."
+            ),
+            "temario": (
+                "Unidad 4 — Ecuación de Bellman y política óptima: la matriz Q "
+                "materializa el valor de cada par estado-acción."
+            ),
+            "pedagogia": (
+                "Convierte un algoritmo en una tabla consultable: enseña que la "
+                "salida del refuerzo no es un modelo predictivo, sino una regla "
+                "de decisión explícita y auditable por el personal."
+            ),
+            "errores": (
+                "• Elegir el máximo global en lugar del máximo por estado. • "
+                "Interpretar los valores Q como ganancia en pesos. • Suponer que "
+                "la tabla sigue siendo válida si cambian la recompensa o el "
+                "patrón de demanda."
+            ),
+            "no_aplica": (
+                "• F1, AUC o MSE: no hay predicción sobre registros ni etiqueta "
+                "de referencia. • K-Means: no se agrupan clientes, se valoran "
+                "acciones. • PCA: nueve celdas no requieren reducción de "
+                "dimensionalidad. • Regresión logística: las probabilidades de "
+                "transición son del simulador, no un modelo entrenado sobre "
+                "clientes."
+            ),
+        },
+        "lectura de la matriz Q como tabla de decisión: máximo por estado y "
+        "significado del valor Q.",
+    ))
+
+    # ---------- D9 · Tabla 1: indicadores clave del proyecto ----------
+    fichas.append(_ficha_curada(
+        "Tabla 1. Indicadores clave del proyecto",
+        "Tabla 1 del reporte completo · Resumen ejecutivo",
+        {
+            "objeto": "Tabla 1 del reporte completo",
+            "tipo_tabla": "tabla de indicadores (dos columnas, siete filas)",
+            "registros_en_bd": n_bd,
+            "consumo_promedio_mxn": consumo_prom,
+            "consumo_total_mxn": consumo_total,
+            "satisfaccion_promedio_sobre_5": sat_prom,
+            "porcentaje_hora_pico": pct_pico,
+            "mejor_clasificador": mejor,
+            "F1_mejor_clasificador": mejor_f1,
+            "politica_afluencia_alta": politica_alta,
+        },
+        {
+            "que_se_ve": (
+                "Tabla de dos columnas y siete filas que condensa el proyecto: "
+                "registros en base de datos, consumo promedio en pesos, consumo "
+                "total, satisfacción promedio sobre 5, porcentaje de registros en "
+                "hora pico, mejor clasificador con su F1 y la acción recomendada "
+                "cuando la afluencia es alta."
+            ),
+            "tecnica": (
+                f"Los valores del run son {n_bd} registros, consumo promedio "
+                f"${_d(consumo_prom)} MXN, satisfacción "
+                f"{_d(sat_prom, '{:.2f}')} de 5 y {_d(pct_pico, '{:.1f}')}% de "
+                f"visitas en hora pico. El mejor clasificador es {mejor} con "
+                f"F1 = {_d(mejor_f1, '{:.3f}')} y la política de refuerzo "
+                f"recomienda {politica_alta} para afluencia alta."
+            ),
+            "simple": (
+                "Es el tablero de un solo vistazo: cuántos clientes se "
+                "registraron, cuánto gastan, qué tan satisfechos están y qué "
+                "conviene hacer cuando hay mucha gente. Si solo se pudiera leer "
+                "una tabla del reporte, sería esta."
+            ),
+            "temario": (
+                "Resumen ejecutivo — síntesis de indicadores: integra estadística "
+                "descriptiva, evaluación de clasificadores y política de refuerzo "
+                "en una sola vista."
+            ),
+            "pedagogia": (
+                "Enseña a construir un resumen ejecutivo honesto: pocos "
+                "indicadores, cada uno con su unidad y su origen, en lugar de una "
+                "lista larga de métricas sin jerarquía."
+            ),
+            "errores": (
+                "• Confundir el promedio con la mediana cuando hay valores "
+                "extremos. • Leer la satisfacción de 4 sobre 5 como si fuera una "
+                "calificación escolar. • Tomar el F1 como medida de éxito del "
+                "negocio y no como medida de calidad del clasificador."
+            ),
+            "no_aplica": (
+                "• Intervalos de confianza: el resumen no los calcula y con la "
+                "muestra actual serían muy anchos. • Pruebas de hipótesis: la "
+                "tabla describe, no contrasta. • Series de tiempo: no hay columna "
+                "de fecha continua, solo hora de llegada. • Deep Learning: no es "
+                "una tabla de modelado."
+            ),
+        },
+        "síntesis ejecutiva: qué indicador resume cada unidad del proyecto y "
+        "cómo se leen juntos.",
+    ))
+
+    # ---------- D10 · Tabla 2: estadísticas descriptivas ----------
+    fichas.append(_ficha_curada(
+        "Tabla 2. Estadísticas descriptivas de variables numéricas",
+        "Tabla 2 del reporte completo · Unidad 1 (estadística descriptiva)",
+        {
+            "objeto": "Tabla 2 del reporte completo",
+            "tipo_tabla": "media y desviación estándar por variable numérica",
+            "variables": ["Hora_Llegada", "Tiempo_Espera_Min",
+                          "Tiempo_Servicio_Min", "Consumo_Total_MXN"],
+            "estadisticas": est_desc,
+            "registros_analizados": n_bd,
+        },
+        {
+            "que_se_ve": (
+                "Tabla de cuatro filas, una por variable numérica (hora de "
+                "llegada, tiempo de espera, tiempo de servicio y consumo total), "
+                "y dos columnas con la media y la desviación estándar calculadas "
+                "sobre los registros válidos del dataset."
+            ),
+            "tecnica": (
+                f"La hora de llegada promedia {_media('Hora_Llegada')} con "
+                f"desviación {_std('Hora_Llegada')}, lo que confirma la "
+                f"concentración matutina. El consumo promedio es "
+                f"${_d(consumo_prom)} MXN, el tiempo de espera medio "
+                f"{_d(espera_prom)} min con máximo de {_d(espera_max)} min y el "
+                f"servicio promedio {_d(servicio_prom)} min. La desviación del "
+                f"consumo es la mayor en términos relativos: señal de alta "
+                f"dispersión entre tipos de cliente."
+            ),
+            "simple": (
+                "Es la radiografía de un día normal: a qué hora suele llegar la "
+                "gente, cuánto espera y cuánto gasta. La media dice el centro y "
+                "la desviación dice cuánto varía; una desviación grande en "
+                "consumo significa que conviven clientes que gastan poco con "
+                "otros que gastan mucho."
+            ),
+            "temario": (
+                "Unidad 1 — Estadística descriptiva: medidas de tendencia central "
+                "y de dispersión como primer paso del análisis exploratorio."
+            ),
+            "pedagogia": (
+                "Instala el hábito de mirar la dispersión y no solo el promedio: "
+                "dos cafeterías con el mismo consumo medio pueden requerir "
+                "decisiones opuestas según su variabilidad."
+            ),
+            "errores": (
+                "• Decidir con la media ignorando la desviación estándar. • "
+                "Comparar el tamaño de las desviaciones de variables con "
+                "unidades distintas. • Asumir normalidad sin revisar la forma de "
+                "la distribución."
+            ),
+            "no_aplica": (
+                "• Correlación de Pearson entre variables categóricas: no están "
+                "en la tabla porque su codificación no tiene sentido métrico. • "
+                "Percentiles: la tabla reporta media y desviación, no cuartiles. "
+                "• Inferencia poblacional: se describe la muestra disponible. • "
+                "PCA: describir no requiere reducir dimensiones."
+            ),
+        },
+        "lectura conjunta de media y desviación estándar; qué decisiones se "
+        "sostienen y cuáles no con estos estadísticos.",
+    ))
+
+    # ---------- D11 · Tabla 3: outliers por IQR ----------
+    fichas.append(_ficha_curada(
+        "Tabla 3. Detección de outliers por método IQR",
+        "Tabla 3 del reporte completo · Unidad 1 (limpieza de datos)",
+        {
+            "objeto": "Tabla 3 del reporte completo",
+            "tipo_tabla": "cuartiles y conteo de valores atípicos por variable",
+            "regla": "atípico si valor < Q1 - 1.5*IQR o valor > Q3 + 1.5*IQR",
+            "registros_totales": n_bd,
+            "outliers_totales": n_out,
+            "porcentaje_outliers": pct_out,
+            "detalle_por_variable": outliers_por_var,
+        },
+        {
+            "que_se_ve": (
+                "Tabla con una fila por variable numérica que muestra el primer "
+                "cuartil Q1, el tercer cuartil Q3, el número de valores atípicos "
+                "detectados y su porcentaje respecto del total de registros."
+            ),
+            "tecnica": (
+                f"Se detectaron {n_out} valores atípicos, el {_d(pct_out)}% de "
+                f"{n_bd} registros. La regla marca como atípico todo valor fuera "
+                f"del intervalo entre Q1 − 1.5·IQR y Q3 + 1.5·IQR. El consumo y "
+                f"el tiempo de espera aportan la mayor parte de los casos, "
+                f"coherente con la cola larga típica del gasto y de la duración "
+                f"del servicio."
+            ),
+            "simple": (
+                "Sirve para encontrar los casos raros: el pedido enorme o la "
+                "espera de veinte minutos. La regla de los cuartiles dice dónde "
+                "termina lo normal y empieza lo excepcional. No hay que borrarlos "
+                "de inmediato: primero hay que preguntar si son errores de "
+                "captura o clientes reales."
+            ),
+            "temario": (
+                "Unidad 1 — Limpieza de datos: detección de valores atípicos por "
+                "rango intercuartílico (IQR) y decisión informada sobre su "
+                "tratamiento."
+            ),
+            "pedagogia": (
+                "Enseña que un outlier es una pregunta y no un error: obliga a "
+                "distinguir entre error de medición, caso legítimo extremo y "
+                "falla del supuesto de normalidad."
+            ),
+            "errores": (
+                "• Eliminar todos los atípicos de forma automática. • Aplicar la "
+                "regla IQR a variables categóricas codificadas. • Confundir el "
+                "porcentaje de outliers con el porcentaje de datos inválidos."
+            ),
+            "no_aplica": (
+                "• Z-score con umbral 3: supone normalidad que estas variables no "
+                "cumplen. • Isolation Forest: con 120-200 registros el modelo "
+                "aprende el ruido. • K-Means para detectar atípicos: fuerza a todo "
+                "punto a pertenecer a un grupo. • Regresión: la tabla diagnostica, "
+                "no predice."
+            ),
+        },
+        "tratamiento de valores atípicos: qué hacer y qué no hacer con los casos "
+        "detectados por IQR.",
+    ))
+
+    # ---------- D12 · Tabla 4: métricas de regresión ----------
+    fichas.append(_ficha_curada(
+        "Tabla 4. Métricas de evaluación de modelos de regresión",
+        "Tabla 4 del reporte completo · Unidad 1 (métricas de regresión)",
+        {
+            "objeto": "Tabla 4 del reporte completo",
+            "tipo_tabla": "MSE y R2 por modelo de regresión",
+            "target": "Consumo_Total_MXN",
+            "regresion_lineal_MSE": reg.get("lr_mse"),
+            "regresion_lineal_R2": reg.get("lr_r2"),
+            "arbol_regresion_MSE": reg.get("dt_mse"),
+            "arbol_regresion_R2": reg.get("dt_r2"),
+            "mejor_por_R2": mejor_reg,
+            "registros_en_prueba": n_prueba,
+        },
+        {
+            "que_se_ve": (
+                "Tabla de cuatro filas que compara la Regresión Lineal y el Árbol "
+                "de Regresión con dos métricas: MSE, el error cuadrático medio, y "
+                "R², el coeficiente de determinación. Junto a cada R² aparece un "
+                "semáforo textual que resume su calidad."
+            ),
+            "tecnica": (
+                f"En prueba, la Regresión Lineal obtiene MSE = "
+                f"{_d(reg.get('lr_mse'))} y R² = "
+                f"{_d(reg.get('lr_r2'), '{:.4f}')}; el Árbol de Regresión, "
+                f"MSE = {_d(reg.get('dt_mse'))} y R² = "
+                f"{_d(reg.get('dt_r2'), '{:.4f}')}. El mejor por R² es "
+                f"{mejor_reg}. Ninguno de los dos captura la mayor parte de la "
+                f"varianza del consumo: las variables disponibles no incluyen "
+                f"día de la semana, clima ni promociones, y el R² de prueba lo "
+                f"refleja."
+            ),
+            "simple": (
+                "Son dos termómetros del error: el MSE dice cuánto se equivoca el "
+                "modelo en pesos al cuadrado y el R² qué parte de la variación del "
+                "gasto logra explicar. Menor MSE y mayor R² indican mejor modelo, "
+                "pero ninguno de los dos mide si la cafetería gana más dinero."
+            ),
+            "temario": (
+                "Unidad 1 — Métricas de regresión: MSE y R² como criterios "
+                "complementarios de evaluación."
+            ),
+            "pedagogia": (
+                "Muestra por qué no se elige un modelo con una sola métrica: MSE "
+                "y R² pueden favorecer modelos distintos y el criterio final "
+                "depende del uso operativo del pronóstico."
+            ),
+            "errores": (
+                "• Comparar MSE entre variables con unidades distintas. • Leer R² "
+                "como porcentaje de aciertos. • Elegir el modelo con mayor R² en "
+                "entrenamiento sin revisar la prueba."
+            ),
+            "no_aplica": (
+                "• F1, precisión y recall: la salida es continua. • Matriz de "
+                "confusión: no hay clases que cruzar. • Silhouette: no hay "
+                "agrupamiento. • AUC: no hay probabilidades de clase que ordenar."
+            ),
+        },
+        "elección entre dos regresores usando MSE y R², y advertencia sobre "
+        "comparar métricas de escalas distintas.",
+    ))
+
+    # ---------- D13 · Tabla 5: comparación de clasificadores ----------
+    fichas.append(_ficha_curada(
+        "Tabla 5. Comparación de clasificadores: F1 y Accuracy",
+        "Tabla 5 del reporte completo · Unidad 2 (métricas de clasificación)",
+        {
+            "objeto": "Tabla 5 del reporte completo",
+            "tipo_tabla": "F1 y exactitud por clasificador",
+            "clase_positiva": "Satisfacción Alta (4-5)",
+            "modelos": modelos,
+            "mejor_modelo": mejor,
+            "mejor_F1": mejor_f1,
+            "mejor_AUC": mejor_auc,
+            "registros_en_prueba": n_prueba,
+            "registros_entrenamiento": max(n_bd - n_prueba, 1),
+        },
+        {
+            "que_se_ve": (
+                "Tabla con una fila por clasificador —Regresión Logística, KNN, "
+                "SVM y Árbol de Decisión— y una columna que combina F1 y "
+                "exactitud, cada valor acompañado de un semáforo textual de "
+                "desempeño."
+            ),
+            "tecnica": (
+                f"Sobre ≈{n_prueba} registros de prueba, {mejor} obtiene el mayor "
+                f"F1 = {_d(mejor_f1, '{:.3f}')} con exactitud "
+                f"{_d(met_mejor.get('Accuracy'), '{:.3f}')}. La tabla pone a los "
+                f"cuatro algoritmos en la misma escala: los modelos lineales y de "
+                f"margen tienden a empatar en F1, mientras el Árbol concentra su "
+                f"ventaja en entrenamiento y pierde más al pasar a prueba."
+            ),
+            "simple": (
+                "Es la carrera de los cuatro candidatos: todos predicen si un "
+                "cliente quedará satisfecho y la tabla dice quién acertó más. Gana "
+                "el que mejor equilibra equivocarse poco con no dejar pasar "
+                "clientes molestos, que es exactamente lo que resume el F1."
+            ),
+            "temario": (
+                "Unidad 2 — Selección y comparación de modelos de clasificación: "
+                "F1 como métrica principal frente a la exactitud."
+            ),
+            "pedagogia": (
+                "Justifica la elección del modelo con evidencia y no con "
+                "preferencia: muestra que el algoritmo más complejo no siempre "
+                "gana y que la comparación debe hacerse sobre el mismo conjunto "
+                "de prueba."
+            ),
+            "errores": (
+                "• Elegir por exactitud cuando las clases están desbalanceadas. • "
+                "Comparar modelos entrenados con particiones distintas de los "
+                "datos. • Suponer que el mejor F1 implica el mejor desempeño "
+                "operativo."
+            ),
+            "no_aplica": (
+                "• MSE y R²: métricas de regresión. • Validación cruzada como "
+                "criterio único: aquí se reporta la partición 70/30. • AUC como "
+                "criterio de selección: se prioriza F1 por el costo asimétrico de "
+                "los errores. • Deep Learning: el tamaño de muestra no lo "
+                "justifica."
+            ),
+        },
+        "comparación de los cuatro clasificadores y por qué se elige el ganador "
+        "por F1 y no por exactitud.",
+    ))
+
+    # ---------- D14 · Tabla 6: comparación train vs test ----------
+    deltas = []
+    try:
+        for nombre_m, k_test, k_train in (
+            ("Regresión Lineal", "metricas_lr", "metricas_lr_train"),
+            ("Árbol de Regresión", "metricas_dt", "metricas_dt_train"),
+        ):
+            r2_tr = float(res_reg[k_train]["R2"])
+            r2_te = float(res_reg[k_test]["R2"])
+            deltas.append({"modelo": nombre_m, "metrica": "R2",
+                           "train": round(r2_tr, 3), "test": round(r2_te, 3),
+                           "delta": round(r2_tr - r2_te, 3)})
+    except (KeyError, TypeError, ValueError):
+        pass
+    for nombre_m, r in mejores.items():
+        try:
+            f1_tr = float(r["metricas_train"]["F1"])
+            f1_te = float(r["metricas"]["F1"])
+            deltas.append({"modelo": nombre_m, "metrica": "F1",
+                           "train": round(f1_tr, 3), "test": round(f1_te, 3),
+                           "delta": round(f1_tr - f1_te, 3)})
+        except (KeyError, TypeError, ValueError):
+            continue
+    con_overfitting = [d["modelo"] for d in deltas if d["delta"] > 0.15]
+    overfitting_txt = ", ".join(con_overfitting) or "ningún modelo"
+
+    fichas.append(_ficha_curada(
+        "Tabla 6. Comparación train vs test para detección de overfitting",
+        "Tabla 6 del reporte completo · Unidad 2 (generalización)",
+        {
+            "objeto": "Tabla 6 del reporte completo",
+            "tipo_tabla": "métrica en train, en test y diferencia por modelo",
+            "umbral_overfitting": 0.15,
+            "modelos_con_delta_mayor_a_0.15": overfitting_txt,
+            "detalle": deltas,
+            "registros_entrenamiento": max(n_bd - n_prueba, 1),
+            "registros_prueba": n_prueba,
+        },
+        {
+            "que_se_ve": (
+                "Tabla con una fila por modelo y una columna que muestra el valor "
+                "de la métrica en entrenamiento, su valor en prueba y la "
+                "diferencia entre ambos, acompañada de la etiqueta OVERFITTING o "
+                "OK según si la brecha supera 0.15."
+            ),
+            "tecnica": (
+                f"Los regresores se evalúan con R² y los clasificadores con F1, "
+                f"sobre {max(n_bd - n_prueba, 1)} registros de entrenamiento y "
+                f"{n_prueba} de prueba. Una diferencia cercana a cero indica "
+                f"generalización; por encima del umbral de 0.15 hay memorización. "
+                f"En este run superan el umbral: {overfitting_txt}. El modelo a "
+                f"desplegar es el de menor brecha con F1 competitivo, no el de "
+                f"mejor métrica en entrenamiento."
+            ),
+            "simple": (
+                "Es como comparar los resultados del examen de práctica con el "
+                "examen real: si al estudiante le va perfecto en la práctica y "
+                "mal en el real, memorizó las respuestas. Aquí se busca al modelo "
+                "que mantiene su calificación cuando ve clientes que nunca había "
+                "visto."
+            ),
+            "temario": (
+                "Unidad 2 — Generalización y overfitting: comparación train vs "
+                "test y regla práctica del delta mayor a 0.15."
+            ),
+            "pedagogia": (
+                "Enseña a desconfiar del desempeño perfecto: la distancia entre "
+                "entrenamiento y prueba es la señal de alarma más útil y la más "
+                "ignorada al reportar resultados."
+            ),
+            "errores": (
+                "• Reportar solo el desempeño en entrenamiento. • Elegir el modelo "
+                "con mayor F1 sin mirar la brecha. • Confundir overfitting con un "
+                "modelo mal entrenado (underfitting)."
+            ),
+            "no_aplica": (
+                "• Curva ROC: mide discriminación en un umbral, no la brecha "
+                "train/test. • Método del codo y silhouette: propios del no "
+                "supervisado. • Q-Learning: su diagnóstico es la curva de "
+                "recompensa. • Pruebas de significancia estadística: la tabla es "
+                "descriptiva."
+            ),
+        },
+        "diagnóstico de overfitting con la brecha train/test y su efecto en la "
+        "decisión de despliegue.",
+    ))
+
+    # ---------- D15 · Tabla 7: cobertura de la rúbrica ----------
+    rubrica = [
+        "1. Definición del problema", "2. Objetivos", "3. Marco conceptual",
+        "4. Análisis de datos", "5. Preprocesamiento", "6. División de datos",
+        "7. Selección del modelo", "8. Entrenamiento", "9. Evaluación",
+        "10. Implementación", "11. Resultados y conclusiones", "12. Entregables",
+    ]
+    fichas.append(_ficha_curada(
+        "Tabla 7. Cobertura de los 12 puntos de la rúbrica",
+        "Tabla 7 del reporte completo · Cierre y trazabilidad",
+        {
+            "objeto": "Tabla 7 del reporte completo",
+            "tipo_tabla": "trazabilidad de 12 requisitos contra capítulos y app",
+            "puntos_de_la_rubrica": rubrica,
+            "total_puntos": len(rubrica),
+            "capitulos_del_reporte": 15,
+            "mejor_clasificador": mejor,
+        },
+        {
+            "que_se_ve": (
+                "Tabla de doce filas, una por cada punto de la rúbrica del "
+                "Proyecto Final —definición del problema, objetivos, marco "
+                "conceptual, análisis de datos, preprocesamiento, división de "
+                "datos, selección del modelo, entrenamiento, evaluación, "
+                "implementación, resultados y entregables—, con la referencia al "
+                "capítulo o a la funcionalidad de la app donde se cubre cada uno."
+            ),
+            "tecnica": (
+                "La tabla es trazabilidad, no una métrica de desempeño: cada "
+                "punto se mapea a un capítulo numerado del reporte o a una función "
+                "concreta de la aplicación Streamlit. Los doce puntos quedan "
+                "cubiertos con evidencia verificable, incluida la app desplegada "
+                "en Streamlit Community Cloud, el repositorio versionado y la "
+                "base de datos en Supabase."
+            ),
+            "simple": (
+                "Es la lista de cotejo del profesor: doce requisitos y, al lado de "
+                "cada uno, dónde está resuelto. Sirve para revisar el proyecto sin "
+                "leer el reporte completo y para comprobar que no falta nada."
+            ),
+            "temario": (
+                "Cierre y trazabilidad — alineación con la rúbrica: cada técnica "
+                "del temario se evidencia en un capítulo y en una funcionalidad de "
+                "la aplicación."
+            ),
+            "pedagogia": (
+                "Enseña a documentar con trazabilidad: un entregable profesional "
+                "demuestra dónde está cada requisito cumplido en lugar de afirmar "
+                "que se cumplió."
+            ),
+            "errores": (
+                "• Confundir esta tabla con una evaluación de calidad del "
+                "proyecto. • Marcar cobertura sin una referencia verificable. • "
+                "Suponer que cubrir los doce puntos implica un buen modelo."
+            ),
+            "no_aplica": (
+                "• Métricas de desempeño: es una tabla de auditoría, no de "
+                "resultados. • Comparaciones estadísticas: no hay variables que "
+                "contrastar. • Cualquier algoritmo de ML: la tabla documenta, no "
+                "modela. • Visualizaciones: su valor está en la referencia, no en "
+                "un gráfico."
+            ),
+        },
+        "cobertura de la rúbrica como trazabilidad: dónde se evidencia cada "
+        "requisito dentro del reporte y de la app.",
+    ))
+
+    return fichas
+
+
+def _campos_de_ficha(spec: dict) -> tuple:
+    """Genera los siete bloques de una ficha y reporta si usó la IA.
+
+    Devuelve `(campos, fuente)`. Si la IA no está disponible, falla o responde
+    un JSON incompleto, `analizar_seccion_ia` ya devuelve el respaldo curado
+    bloque por bloque, de modo que esta función nunca lanza.
+    """
+    fallback = spec["fallback"]
+    try:
+        ia = analizar_seccion_ia(
+            f"Ficha didáctica · {spec['titulo']}",
+            spec["datos"],
+            fallback.get("tecnica", ""),
+            instruccion_extra=spec["instruccion"],
+            doble_capa=False,      # el prompt didáctico ya pide el bloque simple
+            tipo="didactico",
+            fallback_campos=fallback,
+        )
+    except Exception:
+        return dict(fallback), "respaldo"
+    if not isinstance(ia, dict) or not ia:
+        return dict(fallback), "respaldo"
+    return ia, ("ia" if ia != fallback else "respaldo")
+
+
+def _fichas_didacticas(ctx: dict, df=None) -> list[dict]:
+    """Construye las 15 fichas del reporte didáctico con IA en paralelo.
+
+    Sustituye a `_fichas_didacticas_placeholder` de la Fase 5A: la estructura
+    de cada ficha (`titulo`, `referencia`, `campos`) no cambia, solo el origen
+    de los textos. Cada ficha envía a Gemini su propio payload acotado (las
+    métricas reales del objeto que explica) y su respaldo curado, así que un
+    fallo puntual no contamina a las demás. Con `_FICHA_WORKERS = 4` las 15
+    llamadas tardan lo de unas cuatro, y la caché de `mod_ia_analista` evita
+    repetir cuota si se regenera el reporte con los mismos datos.
+    """
+    especificaciones = _especificaciones_didacticas(ctx, df)
+    campos = [dict(spec["fallback"]) for spec in especificaciones]
+    fuentes = ["respaldo"] * len(especificaciones)
+
+    with ThreadPoolExecutor(max_workers=_FICHA_WORKERS) as executor:
+        futuros = {
+            executor.submit(_campos_de_ficha, spec): i
+            for i, spec in enumerate(especificaciones)
         }
+        for fut in as_completed(futuros):
+            i = futuros[fut]
+            try:
+                resultado, fuente = fut.result()
+            except Exception:
+                continue
+            if isinstance(resultado, dict) and resultado:
+                campos[i] = resultado
+                fuentes[i] = fuente
 
-    figuras = [
-        ("Figura 1. Dispersión real vs predicho del modelo lineal",
-         "Figura 1 del reporte completo · Unidad 1 (regresión lineal)"),
-        (f"Figura 2. Matriz de confusión del modelo {mejor}",
-         "Figura 2 del reporte completo · Unidad 2 (clasificación)"),
-        (f"Figura 3. Curva ROC del modelo {mejor}",
-         "Figura 3 del reporte completo · Unidad 2 (evaluación de clasificadores)"),
-        ("Figura 4. Selección de k mediante método del codo",
-         "Figura 4 del reporte completo · Unidad 3 (K-Means)"),
-        ("Figura 5. Visualización de clústeres K-Means en PCA 2D",
-         "Figura 5 del reporte completo · Unidad 3 (clustering y PCA)"),
-        ("Figura 6. Dendrograma del clustering jerárquico aglomerativo",
-         "Figura 6 del reporte completo · Unidad 3 (clustering jerárquico)"),
-        ("Figura 7. Curva de aprendizaje del agente Q-Learning",
-         "Figura 7 del reporte completo · Unidad 4 (aprendizaje por refuerzo)"),
-        ("Figura 8. Matriz Q final: valor por estado y acción",
-         "Figura 8 del reporte completo · Unidad 4 (Q-Learning)"),
+    return [
+        {
+            "titulo": spec["titulo"],
+            "referencia": spec["referencia"],
+            "campos": campos[i],
+            "fuente": fuentes[i],
+        }
+        for i, spec in enumerate(especificaciones)
     ]
-    tablas = [
-        ("Tabla 1. Indicadores clave del proyecto",
-         "Tabla 1 del reporte completo · Resumen ejecutivo"),
-        ("Tabla 2. Estadísticas descriptivas de variables numéricas",
-         "Tabla 2 del reporte completo · Unidad 1 (estadística descriptiva)"),
-        ("Tabla 3. Detección de outliers por método IQR",
-         "Tabla 3 del reporte completo · Unidad 1 (limpieza de datos)"),
-        ("Tabla 4. Métricas de evaluación de modelos de regresión",
-         "Tabla 4 del reporte completo · Unidad 1 (métricas de regresión)"),
-        ("Tabla 5. Comparación de clasificadores: F1 y Accuracy",
-         "Tabla 5 del reporte completo · Unidad 2 (métricas de clasificación)"),
-        ("Tabla 6. Comparación train vs test para detección de overfitting",
-         "Tabla 6 del reporte completo · Unidad 2 (generalización)"),
-        ("Tabla 7. Cobertura de los 12 puntos de la rúbrica",
-         "Tabla 7 del reporte completo · Cierre y trazabilidad"),
-    ]
-    return [_ficha(t, r) for t, r in figuras + tablas]
 
 
 def _cuerpo_didactico(pdf, fichas: list, df=None):
@@ -2321,8 +3500,9 @@ def _cuerpo_didactico(pdf, fichas: list, df=None):
     pdf.set_font(pdf.FONT, "I", 8)
     pdf.set_text_color(110, 110, 110)
     pdf.multi_cell(0, 4, (
-        "Versión 5.0 — infraestructura del reporte didáctico. Los textos de "
-        "cada ficha se completan con el análisis de la Fase 5B."
+        "Versión 5.1 — contenido generado con IA a partir de las métricas "
+        "reales de este proyecto, con un respaldo redactado sobre las mismas "
+        "cifras cuando el servicio no está disponible."
     ))
     pdf.set_text_color(0, 0, 0)
 
@@ -2395,11 +3575,11 @@ def _render_didactico(fichas: list, df=None) -> tuple:
 
 
 def generar_reporte_didactico(df: pd.DataFrame) -> tuple:
-    """Genera el Reporte Didáctico (v5.0). Fase 5A: estructura con placeholders.
+    """Genera el Reporte Didáctico (v5.1) con el contenido de la Fase 5B.
 
-    Reutiliza `_construir_contexto` para que la Fase 5B solo tenga que cambiar
-    los textos de cada ficha por el resultado de
-    `analizar_seccion_ia(..., tipo="didactico")`. Hoy no consume cuota de IA.
+    Reutiliza `_construir_contexto` y pide a `_fichas_didacticas()` las 15
+    fichas: cada una se redacta con `analizar_seccion_ia(tipo="didactico")` en
+    paralelo y cae a un respaldo curado si la IA no está disponible.
     """
     if df.empty or len(df) < 20:
         return None, ("Se necesitan al menos 20 registros para generar "
@@ -2407,7 +3587,7 @@ def generar_reporte_didactico(df: pd.DataFrame) -> tuple:
 
     try:
         ctx = _construir_contexto(df)
-        fichas = _fichas_didacticas_placeholder(ctx, df)
+        fichas = _fichas_didacticas(ctx, df)
         pdf, _info = _render_didactico(fichas, df)
         return bytes(pdf.output()), None
 

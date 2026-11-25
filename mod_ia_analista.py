@@ -45,10 +45,7 @@ CAMPOS_DIDACTICOS = (
     ("no_aplica", "¿Qué técnicas NO se aplican aquí y por qué?"),
 )
 
-PLACEHOLDER_DIDACTICO = (
-    "[Fase 5B] Contenido pendiente: este bloque se completará con el análisis "
-    "didáctico generado por IA a partir de los datos reales del reporte."
-)
+PLACEHOLDER_DIDACTICO = "Contenido no disponible para este bloque."
 
 
 def _normalizar_campos_didacticos(campos: dict | None, texto_base: str = "") -> dict:
