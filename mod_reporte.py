@@ -1789,16 +1789,22 @@ def _construir_contenido(pdf, ctx: dict, textos: dict, png: dict, df=None):
         ("Validación cruzada interna (cv=3)",
          "Sí — aplicada en el SVM calibrado"),
         ("Ensembles: Random Forest / XGBoost",
-         "Sí en teoría (n≥500), no implementado — "
-         + ("no viable con este N" if not _permite_ens
-            else "se prioriza la interpretabilidad")),
+         "⚠ Viable desde n≥500 — no aplicado"
+         + (" (N insuficiente)" if not _permite_ens
+            else " (se prioriza interpretabilidad)")),
         ("Deep Learning tabular: MLP",
-         "Sí en teoría (n≥1000), no implementado — "
-         + ("no viable con este N" if not _permite_dl
-            else "se prioriza la interpretabilidad")),
+         "⚠ Viable desde n≥1000 — no aplicado"
+         + (" (N insuficiente)" if not _permite_dl
+            else " (se prioriza interpretabilidad)")),
         ("Transfer Learning y GANs",
-         "No — sin datos no estructurados ni necesidad de generar muestras"),
+         "✗ No aplica: sin datos no estructurados"),
     ], ancho1=90, ancho2=80)
+    pdf.parrafo(
+        f"Nota: N = {n_actual} registros (nivel {_color_n}). "
+        "⚠ = técnica viable en teoría, pero no implementada en este "
+        "proyecto; ✗ = técnica no aplicable al problema con cualquier N. "
+        "El proyecto se limita a modelos clásicos en todos los casos."
+    )
     # Análisis IA + preguntas + decisiones
     pdf.nota_doble(
         textos["ana_seleccion"]["tecnico"],
