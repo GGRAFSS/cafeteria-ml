@@ -165,17 +165,76 @@ def _clean_value(val):
     return val
 
 
-def load_data() -> tuple[pd.DataFrame, str | None]:
+PAGE_SIZE = 1000  # tamaño de bloque de lectura (PostgREST capa a db-max-rows)
+_MAX_ROWS_LEIDOS = 10_000_000  # salvaguarda anti bucle infinito
+
+
+def _max_id_db() -> int:
+    """ID máximo real de Supabase consultando UNA sola fila.
+
+    `order(id_cliente, desc).limit(1)` es inmune al `db-max-rows` de
+    PostgREST que recorta los SELECT largos (1000 filas por defecto).
+    Devuelve 0 si la tabla está vacía o si falla la BD.
+    """
     try:
-        res = _conn().table("cafeteria").select("*").execute()
+        res = (
+            _conn()
+            .table("cafeteria")
+            .select("id_cliente")
+            .order("id_cliente", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            return int(res.data[0]["id_cliente"])
+    except Exception:
+        pass
+    return 0
+
+
+def load_data() -> tuple[pd.DataFrame, str | None]:
+    """Lee TODOS los registros de Supabase, paginando por bloques.
+
+    PostgREST recorta cada SELECT a `db-max-rows` filas (1000 por defecto) sin
+    avisar, así que se pide con .range() y se avanza por lo realmente recibido:
+    el conteo exacto (count_records) marca la meta y, si la BD no lo da, se
+    corta en el primer bloque corto o vacío.
+    """
+    rows: list[dict] = []
+    try:
+        total = count_records()
+        start = 0
+        page_max = 0  # página más grande recibida (cap real del servidor)
+        while True:
+            res = (
+                _conn()
+                .table("cafeteria")
+                .select("*")
+                .order("id_cliente")
+                .range(start, start + PAGE_SIZE - 1)
+                .execute()
+            )
+            batch = res.data or []
+            if not batch:
+                break
+            rows.extend(batch)
+            start += len(batch)
+            page_max = max(page_max, len(batch))
+            if total >= 0:
+                if start >= total:
+                    break
+            elif len(batch) < page_max:
+                break  # bloque corto = última página (sin conteo fiable)
+            if start >= _MAX_ROWS_LEIDOS:
+                break
     except Exception as e:
         return pd.DataFrame(columns=COLUMNS), str(e)
 
-    if not res.data:
+    if not rows:
         return pd.DataFrame(columns=COLUMNS), None
 
     try:
-        df = pd.DataFrame(res.data).rename(columns=FROM_DB)
+        df = pd.DataFrame(rows).rename(columns=FROM_DB)
         if "Satisfaccion_1_al_5" in df.columns:
             df["Satisfaccion_1_al_5"] = pd.to_numeric(df["Satisfaccion_1_al_5"], errors="coerce").astype("Int64")
         if "ID_Cliente" in df.columns:
@@ -226,12 +285,10 @@ def bulk_insert(
                 db_df["satisfaccion_1_al_5"], errors="coerce"
             ).astype("Int64")
         
-        # Obtener el siguiente ID disponible consultando la BD EN VIVO
-        current_df, _ = load_data()
-        if not current_df.empty and "ID_Cliente" in current_df.columns:
-            existing_max = int(current_df["ID_Cliente"].dropna().max())
-        else:
-            existing_max = 0
+        # Siguiente ID desde la BD real: 1 fila, inmune al cap de 1000 de
+        # PostgREST. Antes se derivaba de load_data(), que devolvía solo 1000
+        # filas y provocaba colisiones de PK (duplicate key) al insertar más.
+        existing_max = _max_id_db()
         next_available_id = existing_max + 1
         
         # FORZAR: todos los registros reciben un ID nuevo (ignoramos el ID del CSV)
@@ -260,8 +317,9 @@ def generar_datos_sinteticos(n: int) -> pd.DataFrame:
     pagos = ["Efectivo", "Tarjeta", "App", None]
     pesos_pago = [0.30, 0.35, 0.25, 0.10]
 
-    current_df, _ = load_data()
-    start_id = next_id(current_df) if not current_df.empty else 1
+    # El ID inicial ya no depende de load_data() (que antes venía capado):
+    # se consulta el máximo real de la BD. bulk_insert reasigna los IDs.
+    start_id = _max_id_db() + 1
 
     registros = []
     for i in range(start_id, start_id + n):
