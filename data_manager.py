@@ -8,6 +8,110 @@ import random
 import math
 from supabase import create_client, Client
 
+# ============================================================
+# LÍMITE DE REGISTROS Y NORMALIZACIÓN
+# ============================================================
+MAX_REGISTROS = 200
+NORMALIZAR_MIN = 1
+NORMALIZAR_MAX = MAX_REGISTROS
+
+
+def count_records() -> int:
+    """Conteo exacto desde Supabase. -1 si falla la conexión."""
+    try:
+        res = (
+            _conn()
+            .table("cafeteria")
+            .select("id_cliente", count="exact")
+            .limit(1)
+            .execute()
+        )
+        return int(res.count or 0)
+    except Exception:
+        return -1
+
+
+def slots_disponibles() -> int:
+    """Cuántos registros caben antes de llegar a MAX_REGISTROS. -1 si falla."""
+    n = count_records()
+    if n < 0:
+        return -1
+    return max(0, MAX_REGISTROS - n)
+
+
+def normalizar_a(n_objetivo: int) -> tuple[bool, str | None, int, int, int, int]:
+    """
+    Ajusta la BD a exactamente n_objetivo registros (1 <= n <= 200).
+    - Si hay M > n_objetivo: borra los M - n_objetivo MÁS RECIENTES (ID alto),
+      conserva los n_objetivo MÁS ANTIGUOS (ID bajo).
+    - Si hay M < n_objetivo: rellena con n_objetivo - M sintéticos (seed=42).
+    - Si hay M == n_objetivo: no hace nada.
+    Retorna (ok, err, antes, despues, borrados, agregados).
+    """
+    try:
+        n_objetivo = int(n_objetivo)
+    except (TypeError, ValueError):
+        return False, f"Valor inválido: {n_objetivo!r}", 0, 0, 0, 0
+    if n_objetivo < NORMALIZAR_MIN or n_objetivo > NORMALIZAR_MAX:
+        return (
+            False,
+            f"Valor fuera de rango [{NORMALIZAR_MIN}, {NORMALIZAR_MAX}]: {n_objetivo}",
+            0, 0, 0, 0,
+        )
+
+    antes = count_records()
+    if antes < 0:
+        return False, "No se pudo leer el conteo actual.", 0, 0, 0, 0
+
+    # Caso exacto
+    if antes == n_objetivo:
+        return True, None, antes, antes, 0, 0
+
+    # Caso reducir: borrar los más recientes (ID alto), conservar los más antiguos
+    if antes > n_objetivo:
+        df_actual, err_load = load_data()
+        if df_actual.empty:
+            return False, f"No se pudo leer la BD: {err_load}", antes, antes, 0, 0
+        df_ordenado = df_actual.sort_values("ID_Cliente").reset_index(drop=True)
+        ids_borrar = [
+            int(x) for x in df_ordenado.iloc[n_objetivo:]["ID_Cliente"].tolist()
+        ]
+        if not ids_borrar:
+            return True, None, antes, antes, 0, 0
+        borrados = 0
+        try:
+            # Borrado en lotes de 100 para no exceder límites de Supabase
+            for i in range(0, len(ids_borrar), 100):
+                lote = ids_borrar[i:i + 100]
+                _conn().table("cafeteria").delete().in_("id_cliente", lote).execute()
+                borrados += len(lote)
+        except Exception as e:
+            fallo = count_records()
+            return (
+                False,
+                f"Error al borrar ({borrados} eliminados antes del fallo): {e}",
+                antes,
+                fallo if fallo >= 0 else antes - borrados,
+                borrados,
+                0,
+            )
+        despues = count_records()
+        if despues < 0:
+            despues = antes - borrados
+        return True, None, antes, despues, borrados, 0
+
+    # Caso rellenar: M < n_objetivo -> agregar sintéticos
+    faltan = n_objetivo - antes
+    df_relleno = generar_datos_sinteticos(faltan)
+    ok, err, count = bulk_insert(df_relleno, respetar_limite=False)
+    if not ok:
+        return False, f"Error al rellenar: {err}", antes, antes, 0, 0
+    despues = count_records()
+    if despues < 0:
+        despues = antes + count
+    return True, None, antes, despues, 0, count
+
+
 COLUMNS = [
     "ID_Cliente", "Hora_Llegada", "Tiempo_Espera_Min", "Tiempo_Servicio_Min",
     "Tipo_Cliente", "Metodo_Pago", "Consumo_Total_MXN",
@@ -92,10 +196,27 @@ def save_record(record: dict) -> tuple[bool, str | None]:
         return False, str(e)
 
 
-def bulk_insert(df: pd.DataFrame) -> tuple[bool, str | None, int]:
-    """Inserta un DataFrame en Supabase forzando IDs nuevos (evita duplicados siempre)."""
+def bulk_insert(
+    df: pd.DataFrame, respetar_limite: bool = True
+) -> tuple[bool, str | None, int]:
+    """Inserta un DataFrame en Supabase forzando IDs nuevos (evita duplicados siempre).
+
+    Con respetar_limite=True (por defecto) aplica el gate de MAX_REGISTROS y
+    rechaza la inserción completa si el lote no cabe. El normalizador interno
+    llama con respetar_limite=False porque él mismo calcula el faltante exacto.
+    """
     if df.empty:
         return False, "El archivo está vacío.", 0
+    if respetar_limite:
+        libres = slots_disponibles()
+        if libres < 0:
+            return False, "No se pudo verificar el conteo actual en Supabase.", 0
+        if len(df) > libres:
+            return False, (
+                f"El límite es {MAX_REGISTROS} registros y solo caben {libres} más "
+                f"(la base tiene {MAX_REGISTROS - libres}). Se intentaron insertar "
+                f"{len(df)}. Usa el Normalizador de BD para ajustar el tamaño."
+            ), 0
     try:
         db_df = df.rename(columns=TO_DB)
         
