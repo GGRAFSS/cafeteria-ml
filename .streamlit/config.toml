@@ -1,0 +1,5 @@
+# Configuración del servidor Streamlit — Cafetería Universitaria (ML)
+# Habilita el endpoint /app/static/* para servir la carpeta ./static,
+# de donde el CSS del hero toma la imagen: url("/app/static/hero.jpeg").
+[server]
+enableStaticServing = true

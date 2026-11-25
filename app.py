@@ -20,6 +20,7 @@ import mod_supervisado as ms
 import mod_no_supervisado as mns
 import mod_refuerzo as mr
 from datetime import datetime
+import os
 
 # ============================================================
 # CONFIGURACIÓN DE PÁGINA
@@ -32,6 +33,155 @@ st.set_page_config(
 )
 
 # ============================================================
+# ESTILO INSTITUCIONAL (CSS v5.1)
+# ============================================================
+CSS = """
+:root{
+    --azul:#003366;
+    --azul-oscuro:#0b2545;
+    --dorado:#C9A961;
+    --gris:#F5F5F5;
+}
+.stApp{ background:linear-gradient(180deg,#FFFFFF 0%,#FAFBFC 100%); }
+h1, h2, h3{ color:var(--azul); }
+
+/* ---------- HERO ---------- */
+.hero{
+    position:relative; min-height:240px; margin:0 0 1rem 0; padding:2.3rem 2.6rem;
+    border-radius:16px; overflow:hidden;
+    display:flex; flex-direction:column; justify-content:center;
+    background-image:
+        linear-gradient(105deg, rgba(0,51,102,.94) 0%, rgba(0,51,102,.78) 48%, rgba(11,37,69,.42) 100%),
+        url("/app/static/hero.jpeg");
+    background-size:cover; background-position:center;
+    box-shadow:0 10px 26px rgba(0,51,102,.28);
+}
+.hero h1, .hero h3, .hero p{
+    position:relative; margin:0; color:#FFFFFF !important;
+    text-shadow:0 2px 8px rgba(0,0,0,.55);
+}
+.hero h1{ font-size:2.1rem; font-weight:800; letter-spacing:.3px; }
+.hero h3{ font-size:1.12rem; font-weight:600; color:var(--dorado) !important; margin:.4rem 0 .5rem 0; }
+.hero p{ font-size:.95rem; opacity:.95; }
+
+/* ---------- BOTONES ---------- */
+.stButton > button{ border-radius:9px; font-weight:600; }
+.stButton > button[kind="primary"], button[data-testid="stBaseButton-primary"]{
+    background:var(--azul) !important; color:#FFFFFF !important;
+    border:1px solid var(--azul) !important;
+    box-shadow:0 4px 14px rgba(0,51,102,.22);
+}
+.stButton > button[kind="primary"] p, button[data-testid="stBaseButton-primary"] p{ color:#FFFFFF !important; }
+.stButton > button[kind="primary"]:hover, button[data-testid="stBaseButton-primary"]:hover{
+    background:var(--dorado) !important; color:var(--azul-oscuro) !important;
+    border-color:#b3924f !important;
+}
+.stButton > button[kind="primary"]:hover p, button[data-testid="stBaseButton-primary"]:hover p{
+    color:var(--azul-oscuro) !important;
+}
+
+/* ---------- PESTAÑAS ---------- */
+.stTabs [data-baseweb="tab-list"]{
+    gap:6px; background:var(--gris); padding:6px;
+    border-radius:12px; border:1px solid #E3E6EB;
+}
+.stTabs [data-baseweb="tab"]{ border-radius:9px; padding:6px 14px; font-weight:600; color:#33475B; background:transparent; }
+.stTabs [aria-selected="true"]{ background:var(--azul) !important; }
+.stTabs [aria-selected="true"] p{ color:#FFFFFF !important; }
+.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"]{ display:none; }
+
+/* ---------- MÉTRICAS ---------- */
+[data-testid="stMetric"]{
+    background:var(--gris); border-left:4px solid var(--azul);
+    border-radius:10px; padding:.6rem .9rem;
+}
+[data-testid="stMetricLabel"] p{ color:#33475B !important; font-weight:600; }
+[data-testid="stMetricValue"]{ color:var(--azul); }
+
+/* ---------- SIDEBAR ---------- */
+[data-testid="stSidebar"]{ background:var(--azul-oscuro); }
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3{ color:#FFFFFF; }
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] li,
+[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p{ color:#E8EEF7; }
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p{ color:#BFD0E4; }
+[data-testid="stSidebar"] hr{ border-color:rgba(255,255,255,.18); }
+[data-testid="stSidebar"] .stButton > button,
+[data-testid="stSidebar"] .stDownloadButton > button{
+    background:var(--gris) !important; color:var(--azul) !important;
+    border:1px solid rgba(201,169,97,.55) !important;
+}
+[data-testid="stSidebar"] .stButton > button p,
+[data-testid="stSidebar"] .stDownloadButton > button p{ color:var(--azul) !important; }
+[data-testid="stSidebar"] .stButton > button:hover,
+[data-testid="stSidebar"] .stDownloadButton > button:hover{
+    background:var(--dorado) !important; color:var(--azul-oscuro) !important;
+    border-color:var(--dorado) !important;
+}
+[data-testid="stSidebar"] .stButton > button:hover p,
+[data-testid="stSidebar"] .stDownloadButton > button:hover p{ color:var(--azul-oscuro) !important; }
+[data-testid="stSidebar"] [data-testid="stAlert"] p{ color:#1A1A1A !important; }
+[data-testid="stSidebar"] [data-testid="stMetric"]{
+    background:rgba(255,255,255,.10); border-left:4px solid var(--dorado);
+}
+[data-testid="stSidebar"] [data-testid="stMetricLabel"] p{ color:#CFDCEC !important; }
+[data-testid="stSidebar"] [data-testid="stMetricValue"]{ color:#FFFFFF; }
+"""
+st.markdown(f"<style>{CSS}</style>", unsafe_allow_html=True)
+
+
+def _toast_diferido(mensaje: str, icono: str = "✅") -> None:
+    """Encola un toast para mostrarlo después del siguiente ``st.rerun()``."""
+    st.session_state["_toast_pendiente"] = (mensaje, icono)
+
+
+_pendiente = st.session_state.pop("_toast_pendiente", None)
+if _pendiente:
+    st.toast(_pendiente[0], icon=_pendiente[1])
+
+# ============================================================
+# ============================================================
+# POPUP DE BIENVENIDA (1 vez por sesión)
+# ============================================================
+@st.dialog("👋 Bienvenido al Laboratorio de ML", width="large")
+def _mostrar_bienvenida() -> None:
+    """Popup institucional de bienvenida (1 vez por sesión o desde el sidebar)."""
+    c_logo1, c_logo2 = st.columns(2)
+    if os.path.exists("assets/logo_tecnm_virtual.png"):
+        with c_logo1:
+            st.image("assets/logo_tecnm_virtual.png", width=110)
+    if os.path.exists("assets/logo_maestria_ia.png"):
+        with c_logo2:
+            st.image("assets/logo_maestria_ia.png", width=95)
+
+    st.markdown("### ☕ Cafetería Universitaria — Laboratorio de ML")
+    st.markdown(
+        """
+        **Materia:** Aprendizaje Automático · **Posgrado:** Maestría en Inteligencia Artificial  
+        **Institución:** TecNM — Instituto Tecnológico de Tijuana · **Periodo:** 2026
+
+        **Autores:** Rodríguez Avilez Selene · Raygoza Flores Gabriel  
+        **Docente:** Dra. Claudia Ibeth González Berrelleza
+        """
+    )
+    st.markdown(
+        """
+        **¿Qué puedes hacer en esta app?**
+        - 📝 **Capturar, cargar y normalizar** los registros de clientes (7:00–11:00 AM).
+        - 🧠 **Entrenar y comparar** regresión, clasificación, clustering (K-Means,
+          jerárquico, DBSCAN) y refuerzo (Q-Learning).
+        - 📄 **Descargar reportes PDF** ejecutivos y didácticos con métricas y figuras.
+        """
+    )
+    if st.button("Comenzar 🚀", type="primary", use_container_width=True):
+        st.session_state["_bienvenida_mostrada"] = True
+        st.rerun()
+
+
+if not st.session_state.get("_bienvenida_mostrada"):
+    _mostrar_bienvenida()
+
+# ============================================================
 # CARGA DE DATOS
 # ============================================================
 df, load_error = dm.load_data()
@@ -40,7 +190,10 @@ df, load_error = dm.load_data()
 # SIDEBAR
 # ============================================================
 with st.sidebar:
-    st.image("https://img.icons8.com/color/96/000000/coffee-to-go.png", width=80)
+    if os.path.exists("assets/logo_tecnm_virtual.png"):
+        st.image("assets/logo_tecnm_virtual.png", width=90)
+    if os.path.exists("assets/logo_maestria_ia.png"):
+        st.image("assets/logo_maestria_ia.png", width=80)
     st.markdown("### 📋 Proyecto Integrador")
     st.markdown(
         """
@@ -140,6 +293,7 @@ with st.sidebar:
 
     if st.button(
         "📄 Reporte completo",
+        type="primary",
         use_container_width=True,
         help="11 capítulos, 8 figuras, glosario, análisis IA doble capa.",
     ):
@@ -153,10 +307,11 @@ with st.sidebar:
                 st.error(f"Error: {err}")
             else:
                 st.session_state["pdf_reporte"] = pdf_bytes
-                st.success("✅ Reporte completo generado.")
+                st.toast("📄 Reporte completo generado.", icon="✅")
 
     if st.button(
         "📋 Resumen 1 página",
+        type="primary",
         use_container_width=True,
         help="KPIs clave + acciones prioritarias en 1 hoja.",
     ):
@@ -170,10 +325,11 @@ with st.sidebar:
                 st.error(f"Error: {err}")
             else:
                 st.session_state["pdf_resumen"] = pdf_bytes
-                st.success("✅ Resumen generado.")
+                st.toast("📋 Resumen de 1 página generado.", icon="✅")
 
     if st.button(
         "🎓 Reporte didáctico",
+        type="primary",
         use_container_width=True,
         help="Explica cada figura y tabla en 7 bloques: qué se ve, interpretación "
              "técnica, palabras simples, temario, pedagogía, errores comunes y "
@@ -189,7 +345,7 @@ with st.sidebar:
                 st.error(f"Error: {err}")
             else:
                 st.session_state["pdf_didactico"] = pdf_bytes
-                st.success("✅ Reporte didáctico generado.")
+                st.toast("🎓 Reporte didáctico generado.", icon="✅")
 
     if "pdf_reporte" in st.session_state:
         st.download_button(
@@ -225,9 +381,14 @@ with st.sidebar:
         try:
             from mod_ia_analista import limpiar_cache_ia
             limpiar_cache_ia()
-            st.success("Caché IA limpiado.")
+            st.toast("🧠 Caché IA limpiado.", icon="✅")
         except Exception as e:
             st.error(str(e))
+
+    st.divider()
+    if st.button("ℹ️ Acerca del proyecto", use_container_width=True):
+        st.session_state["_bienvenida_mostrada"] = False
+        st.rerun()
 
 # ============================================================
 # BANNER DE ERROR
@@ -246,14 +407,17 @@ if load_error:
     st.stop()
 
 # ============================================================
-# TÍTULO PRINCIPAL
+# HERO INSTITUCIONAL
 # ============================================================
-st.title("☕ Cafetería Universitaria — Laboratorio de ML")
 st.markdown(
     """
-    **Sistema Integrador de Aprendizaje Automático** aplicado al análisis de clientes
-    en horario matutino (7:00 AM – 11:00 AM). Cubre las 4 unidades del temario.
-    """
+    <div class="hero hero-container">
+        <h1>☕ Cafetería Universitaria</h1>
+        <h3>Laboratorio de Aprendizaje Automático</h3>
+        <p>Maestría en IA · TecNM · Instituto Tecnológico de Tijuana</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 st.divider()
 
@@ -261,12 +425,12 @@ st.divider()
 # PESTAÑAS
 # ============================================================
 tabs = st.tabs([
-    "📝 Captura y Datos",
-    "🧠 Fundamentos (U1)",
-    "📈 Regresión (U2)",
-    "🎯 Clasificación (U2)",
-    "🔍 No Supervisado (U3)",
-    "🤖 Refuerzo (U4)",
+    "📝 Captura",
+    "🧠 U1 · Fundamentos",
+    "📈 U2 · Regresión",
+    "🎯 U2 · Clasificación",
+    "🔍 U3 · Clustering",
+    "🤖 U4 · Refuerzo",
 ])
 
 # ============ 1. CAPTURA Y DATOS ============
@@ -322,7 +486,7 @@ with tabs[0]:
                 }
                 ok, err = dm.save_record(record)
                 if ok:
-                    st.success("✅ Registro guardado.")
+                    _toast_diferido("💾 Registro guardado.", icono="✅")
                     st.rerun()
                 else:
                     st.error(f"Error: {err}")
@@ -395,12 +559,16 @@ with tabs[0]:
         n_sint = st.slider(
             "Cantidad de registros a generar:", 1, _max_sint, min(50, _max_sint)
         )
-        if st.button("🧪 Generar e Insertar Sintéticos"):
+        if st.button(
+            "🧪 Generar e Insertar Sintéticos",
+            type="primary",
+            use_container_width=True,
+        ):
             with st.spinner(f"Generando {n_sint} registros..."):
                 df_sint = dm.generar_datos_sinteticos(n_sint)
                 ok, err, count = dm.bulk_insert(df_sint)
             if ok:
-                st.success(f"✅ {count} registros sintéticos insertados.")
+                _toast_diferido(f"🧪 {count} registros sintéticos insertados.")
                 st.rerun()
             else:
                 st.error(f"Error: {err}")
@@ -418,8 +586,9 @@ with tabs[0]:
                 "está disponible en este momento."
             )
         else:
-            if st.session_state.get("norm_ok"):
-                st.success(st.session_state.pop("norm_ok"))
+            _msg_norm = st.session_state.pop("norm_ok", None)
+            if _msg_norm:
+                st.toast(_msg_norm.removeprefix("✅ ").strip(), icon="⚖️")
             st.caption(
                 f"📦 Base actual: **{n_actual} / {dm.MAX_REGISTROS}** registros"
             )
@@ -504,7 +673,11 @@ with tabs[2]:
     if df.empty:
         st.info("Sin datos. Ve a la pestaña de Captura para generar datos.")
     else:
-        if st.button("🚀 Entrenar Modelos de Regresión", key="btn_reg"):
+        if st.button(
+            "🚀 Entrenar Modelos de Regresión",
+            key="btn_reg",
+            type="primary",
+        ):
             with st.spinner("Entrenando Regresión Lineal y Árboles..."):
                 res_reg = ms.entrenar_regresion(df)
 
@@ -541,7 +714,11 @@ with tabs[3]:
             ["Regresión Logística", "KNN", "SVM", "Árbol de Decisión"],
         )
 
-        if st.button("🚀 Entrenar Clasificador", key="btn_clf"):
+        if st.button(
+            "🚀 Entrenar Clasificador",
+            key="btn_clf",
+            type="primary",
+        ):
             with st.spinner(f"Entrenando {modelo_clf}..."):
                 res_clf = ms.entrenar_clasificacion(df, modelo_clf)
 
