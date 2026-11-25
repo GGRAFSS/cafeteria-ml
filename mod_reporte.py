@@ -70,6 +70,28 @@ def semaforo(metrica: str, valor: float) -> str:
 
 
 # ============================================================
+# NIVEL 5 — nivel de muestra (N real de la base de datos)
+# ============================================================
+def _nivel_muestra(n):
+    '''Devuelve (color, texto, permite_ensembles, permite_dl).
+
+    Umbrales: n<100 ROJO; 100-199 AMARILLO; 200-499 VERDE; 500-999 VERDE+;
+    n>=1000 VERDE++. Lo usan los textos de análisis IA (_preparar_tareas_ia)
+    y el cuerpo del reporte (_construir_contenido).
+    '''
+    if n < 100:
+        return ("ROJO", "INSUFICIENTE para generalizar", False, False)
+    elif n < 200:
+        return ("AMARILLO", "PRELIMINAR, ampliar recomendado", False, False)
+    elif n < 500:
+        return ("VERDE", "SUFICIENTE para conclusiones estables", False, False)
+    elif n < 1000:
+        return ("VERDE+", "EXCELENTE, permite ensembles", True, False)
+    else:
+        return ("VERDE++", "EXCELENTE, permite ensembles y Deep Learning tabular", True, True)
+
+
+# ============================================================
 # ASSETS (logos institucionales)
 # ============================================================
 def _get_asset_path(nombre: str) -> str | None:
@@ -779,6 +801,7 @@ def _preparar_tareas_ia(ctx: dict, png: dict) -> tuple[list, dict]:
     contexto = ctx["contexto"]
     resumen_exec = ctx["resumen_exec"]
     len_df = contexto["total_registros_bd"]
+    _color_df, _nivel_df, _permite_ens_df, _permite_dl_df = _nivel_muestra(len_df)
 
     calidad_datos = {
         "total_registros": len_df,
@@ -851,7 +874,8 @@ def _preparar_tareas_ia(ctx: dict, png: dict) -> tuple[list, dict]:
         "ana_marco": (
             "El proyecto aplica correctamente supervisado, no supervisado y "
             "refuerzo. La exclusión de Deep Learning y GANs está justificada "
-            "por el tamaño y estructura del dataset (120-200 registros tabulares)."
+            f"por el tamaño y estructura del dataset ({len_df} registros "
+            f"tabulares, nivel {_color_df}: {_nivel_df.lower()})."
         ),
         "ana_preprocesamiento": (
             "El pipeline aplica limpieza, normalización y codificación. "
@@ -860,15 +884,24 @@ def _preparar_tareas_ia(ctx: dict, png: dict) -> tuple[list, dict]:
         ),
         "ana_division": (
             "La división 70/30 con random_state=42 es reproducible y reserva "
-            "~30% de los datos para una evaluación honesta. Con 120-200 "
-            "registros no conviene un tercer conjunto: la validación cruzada "
-            "interna del SVM (cv=3) cumple esa función sin restar datos."
+            f"~30% de los datos para una evaluación honesta. Con {len_df} "
+            "registros "
+            + ("no conviene un tercer conjunto: la validación cruzada interna "
+               "del SVM (cv=3) cumple esa función sin restar datos."
+               if len_df < 500 else
+               "un tercer conjunto sería viable, pero se conserva 70/30 con "
+               "validación cruzada interna (cv=3) para mantener comparabilidad "
+               "con el resto del proyecto.")
         ),
         "ana_seleccion": (
             "Se comparan 2 regresores, 4 clasificadores, 3 algoritmos de "
             "agrupamiento y 1 de refuerzo: cobertura amplia del temario con "
-            "modelos clásicos adecuados a 120-200 registros tabulares. Los "
-            "ensembles y el Deep Learning quedan fuera por tamaño de muestra."
+            f"modelos clásicos adecuados a {len_df} registros tabulares "
+            f"(nivel {_color_df}). Los ensembles y el Deep Learning quedan "
+            "fuera por decisión metodológica del proyecto"
+            + (": con este N tampoco serían viables." if not _permite_ens_df
+               else ": con este N serían técnicamente viables, pero se "
+                    "prioriza la interpretabilidad de los modelos clásicos.")
         ),
         "ana_validacion": (
             "Se observa overfitting en el Árbol (delta F1>0.15) y underfitting "
@@ -1431,6 +1464,10 @@ def _construir_contenido(pdf, ctx: dict, textos: dict, png: dict, df=None):
     desc = ctx["desc"]
     outliers_summary = ctx["outliers_summary"]
 
+    # ---------- Nivel de muestra (Nivel 5) ----------
+    n_actual = len(df) if df is not None else contexto["total_registros_bd"]
+    _color_n, _nivel_n, _permite_ens, _permite_dl = _nivel_muestra(n_actual)
+
     # ---------- 1. DEFINICIÓN DEL PROBLEMA (antes "2. Introducción") ----------
     pdf.titulo_capitulo("1", "Definición del Problema")
     pdf.parrafo(
@@ -1533,10 +1570,14 @@ def _construir_contenido(pdf, ctx: dict, textos: dict, png: dict, df=None):
     pdf.parrafo(
         "Deep Learning, Transfer Learning y GANs requieren datasets de "
         "miles o millones de registros, o datos no estructurados (imágenes, "
-        "texto, audio). Con 120-200 registros tabulares, los modelos "
-        "clásicos son la opción metodológicamente correcta: mejor "
-        "interpretabilidad, menor riesgo de overfitting y menor costo "
-        "computacional."
+        f"texto, audio). Con {n_actual} registros tabulares (nivel {_color_n}: "
+        f"{_nivel_n.lower()}), los modelos clásicos son la opción "
+        "metodológicamente correcta: mejor interpretabilidad, menor riesgo de "
+        "overfitting y menor costo computacional"
+        + ("; con este N los ensembles tampoco se justifican."
+           if not _permite_ens else
+           "; aunque con este N los ensembles serían viables, el proyecto "
+           "prioriza la interpretabilidad de los modelos clásicos.")
     )
     pdf.subtitulo("Función objetivo por tipo de problema")
     pdf.parrafo(
@@ -1639,20 +1680,31 @@ def _construir_contenido(pdf, ctx: dict, textos: dict, png: dict, df=None):
         "final y NUNCA participa en el ajuste de hiperparámetros."
     )
     pdf.subtitulo("¿Por qué no 60/20/20 con conjunto de validación?")
+    _n_val = max(int(round(n_actual * 0.20)), 1)
     pdf.parrafo(
-        "Con n=120-200 registros, un conjunto de validación separado (20% "
-        "≈ 30 registros) sería estadísticamente insuficiente: las métricas "
-        "tendrían varianza alta y no serían representativas. En su lugar, "
-        "se usa validación cruzada interna (CalibratedClassifierCV con cv=3) "
-        "en el modelo SVM, que es más robusto con muestras pequeñas. La "
-        "rúbrica acepta 70/30 como opción válida."
+        f"Con n={n_actual} registros (nivel {_color_n}), un conjunto de "
+        f"validación separado (20% ≈ {_n_val} registros) "
+        + ("sería estadísticamente insuficiente: las métricas tendrían "
+           "varianza alta y no serían representativas. En su lugar, se usa "
+           "validación cruzada interna (CalibratedClassifierCV con cv=3) en "
+           "el modelo SVM, que es más robusto con muestras pequeñas. La "
+           "rúbrica acepta 70/30 como opción válida."
+           if n_actual < 500 else
+           "sería viable en tamaño, pero se conserva la división 70/30 con "
+           "validación cruzada interna (cv=3) para mantener comparabilidad y "
+           "reservar el 30% de prueba. La rúbrica acepta 70/30 como opción "
+           "válida.")
     )
     pdf.subtitulo("Tamaño mínimo idóneo de muestra")
     pdf.tabla_metrica([
         ("Para 70/30", "≥100 registros (≥30 en test)"),
         ("Para 60/20/20", "≥150 registros (≥30 en test)"),
         ("Para 5-fold CV", "≥250 registros (≥50 por fold)"),
+        ("Para ensembles (RF/XGBoost)", "≥500 registros"),
+        ("Para Deep Learning tabular", "≥1000 registros"),
         ("Recomendación del proyecto", "≥200 registros antes de generalizar"),
+        ("Tu dataset actual",
+         f"{n_actual} registros — nivel {_color_n}: {_nivel_n.lower()}"),
     ], ancho1=60, ancho2=120)
     pdf.subtitulo("Nota sobre la base de datos")
     pdf.parrafo(
@@ -1700,13 +1752,53 @@ def _construir_contenido(pdf, ctx: dict, textos: dict, png: dict, df=None):
         "interpretable."
     )
     pdf.subtitulo("Regla de selección aplicada")
+    if not _permite_ens:
+        _cola_regla = (". Con este N, los ensembles y el Deep Learning no son "
+                       "una opción válida por falta de datos.")
+    elif not _permite_dl:
+        _cola_regla = (". Con este N los ensembles serían técnicamente viables, "
+                       "pero el proyecto se limita a modelos clásicos para "
+                       "preservar interpretabilidad; el Deep Learning sigue "
+                       "sin justificarse.")
+    else:
+        _cola_regla = (". Con este N tanto los ensembles como el Deep Learning "
+                       "tabular serían técnicamente viables; el proyecto se "
+                       "limita a modelos clásicos por decisión metodológica y "
+                       "de interpretabilidad.")
     pdf.parrafo(
         "La complejidad del modelo debe ser proporcional al tamaño y "
-        "estructura del dataset. Con 120-200 registros tabulares, los "
-        "modelos clásicos son metodológicamente correctos: mejor "
-        "interpretabilidad, menor riesgo de overfitting y menor costo "
-        "computacional."
+        f"estructura del dataset. Con {n_actual} registros tabulares "
+        f"(nivel {_color_n}: {_nivel_n.lower()}), los modelos clásicos son "
+        "metodológicamente correctos: mejor interpretabilidad, menor riesgo "
+        "de overfitting y menor costo computacional" + _cola_regla
     )
+    pdf.subtitulo("Matriz de aplicabilidad")
+    pdf.parrafo(
+        f"La matriz resume qué técnicas aplican con el N real del dataset "
+        f"({n_actual} registros, nivel {_color_n}) y qué se decidió en este "
+        f"proyecto. La decisión se limita a modelos clásicos en todos los "
+        f"casos, aun cuando la técnica sea viable en teoría."
+    )
+    pdf.tabla_metrica([
+        ("Supervisado: regresión y clasificación",
+         f"Sí — aplicado con {n_actual} registros"),
+        ("No supervisado: K-Means, Jerárquico, DBSCAN",
+         f"Sí — aplicado con {n_actual} registros"),
+        ("Refuerzo: Q-Learning tabular",
+         "Sí — aplicado sobre entorno simulado, sin datos de la BD"),
+        ("Validación cruzada interna (cv=3)",
+         "Sí — aplicada en el SVM calibrado"),
+        ("Ensembles: Random Forest / XGBoost",
+         "Sí en teoría (n≥500), no implementado — "
+         + ("no viable con este N" if not _permite_ens
+            else "se prioriza la interpretabilidad")),
+        ("Deep Learning tabular: MLP",
+         "Sí en teoría (n≥1000), no implementado — "
+         + ("no viable con este N" if not _permite_dl
+            else "se prioriza la interpretabilidad")),
+        ("Transfer Learning y GANs",
+         "No — sin datos no estructurados ni necesidad de generar muestras"),
+    ], ancho1=90, ancho2=80)
     # Análisis IA + preguntas + decisiones
     pdf.nota_doble(
         textos["ana_seleccion"]["tecnico"],
@@ -1970,12 +2062,25 @@ def _construir_contenido(pdf, ctx: dict, textos: dict, png: dict, df=None):
     # ---- 11.4 Conclusiones y Limitaciones (texto de v3.3) ----
     pdf.subtitulo("11.4 Conclusiones y Limitaciones")
     pdf.nota_doble(textos["conclusiones"]["tecnico"], textos["conclusiones"]["simple"])
+    _texto_nivel = {
+        "ROJO": "El tamaño de muestra es insuficiente para generalizar: los "
+                "resultados son indicativos y deben leerse como evidencia "
+                "preliminar.",
+        "AMARILLO": "El tamaño de muestra es preliminar: conviene ampliar a 200 "
+                    "o más registros antes de generalizar a todos los turnos.",
+        "VERDE": "El tamaño de muestra es suficiente para obtener conclusiones "
+                 "estables con modelos clásicos, sin recurrir a arquitecturas "
+                 "profundas.",
+        "VERDE+": "El tamaño de muestra es excelente y permitiría ensembles; "
+                  "el proyecto se limita a modelos clásicos por "
+                  "interpretabilidad.",
+        "VERDE++": "El tamaño de muestra es excelente y permitiría ensembles y "
+                   "Deep Learning tabular; el proyecto mantiene modelos "
+                   "clásicos por decisión metodológica.",
+    }
     tam_muestra_nota = (
-        "El tamaño de muestra actual es acotado; convendrá ampliar los registros "
-        "capturados antes de generalizar a todos los turnos."
-        if len(df) < 200
-        else f"El dataset cuenta con {len(df)} registros tabulares, lo que favorece "
-             f"modelos clásicos y simulaciones frente a arquitecturas profundas."
+        f"El dataset cuenta con {n_actual} registros tabulares (nivel "
+        f"{_color_n}: {_nivel_n.lower()}). {_texto_nivel[_color_n]}"
     )
     pdf.parrafo(
         f"• {tam_muestra_nota}\n"
@@ -2517,9 +2622,10 @@ def _especificaciones_didacticas(ctx: dict, df=None) -> list[dict]:
                 "• MSE y R²: la salida es una clase, no un valor continuo. "
                 "• Silhouette o método del codo: existen etiquetas reales, no se "
                 "busca estructura oculta. • Q-Learning: no hay decisiones "
-                "secuenciales que optimizar. • Deep Learning: 120-200 registros "
-                "tabulares no justifican una red que la matriz 2×2 no podría "
-                "explicar mejor."
+                f"secuenciales que optimizar. • Deep Learning: con {n_bd} registros "
+                + ("tabulares no se justifica una red que la matriz 2×2 no podría explicar mejor."
+                   if n_bd < 500
+                   else "tabulares, una red neuronal podría aportar capacidad de representación no lineal, aunque la matriz 2×2 seguiría siendo interpretable y suficiente para este problema binario.")
             ),
         },
         "lectura de la matriz de confusión del clasificador ganador; explica "
@@ -3096,8 +3202,11 @@ def _especificaciones_didacticas(ctx: dict, df=None) -> list[dict]:
             ),
             "no_aplica": (
                 "• Z-score con umbral 3: supone normalidad que estas variables no "
-                "cumplen. • Isolation Forest: con 120-200 registros el modelo "
-                "aprende el ruido. • K-Means para detectar atípicos: fuerza a todo "
+                "cumplen. • Isolation Forest: "
+                + (f"con {n_bd} registros el modelo aprende el ruido."
+                   if n_bd < 500
+                   else f"con {n_bd} registros podría aplicarse, aunque la regla IQR es más interpretable y suficiente para este problema.")
+                + " • K-Means para detectar atípicos: fuerza a todo "
                 "punto a pertenecer a un grupo. • Regresión: la tabla diagnostica, "
                 "no predice."
             ),
