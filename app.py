@@ -174,11 +174,13 @@ def _mostrar_bienvenida() -> None:
         """
     )
     if st.button("Comenzar 🚀", type="primary", use_container_width=True):
-        st.session_state["_bienvenida_mostrada"] = True
+        # Persistimos la decisión en la URL (?bienvenida=0) para que
+        # sobreviva a los reruns y a la recarga de la pestaña.
+        st.query_params["bienvenida"] = "0"
         st.rerun()
 
 
-if not st.session_state.get("_bienvenida_mostrada"):
+if st.query_params.get("bienvenida") != "0":
     _mostrar_bienvenida()
 
 # ============================================================
@@ -387,7 +389,8 @@ with st.sidebar:
 
     st.divider()
     if st.button("ℹ️ Acerca del proyecto", use_container_width=True):
-        st.session_state["_bienvenida_mostrada"] = False
+        # Limpiamos el query param para que el popup vuelva a aparecer.
+        st.query_params.clear()
         st.rerun()
 
 # ============================================================
