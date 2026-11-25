@@ -3,6 +3,12 @@ Módulo Analista con IA (Gemini)
 Genera interpretaciones dinámicas de métricas, gráficas y conclusiones
 a partir de los valores actuales de la base de datos.
 
+v5.0:
+- Tercer tipo `didactico`: devuelve los siete campos de CAMPOS_DIDACTICOS
+  (qué se ve, interpretación, palabras simples, temario, pedagogía,
+  errores frecuentes y técnicas que NO aplican), base del Reporte
+  Didáctico de mod_reporte.
+
 v3.3:
 - Parámetro `tipo` para distinguir "analisis" (doble capa) vs "decisiones"
   (lista operativa corta).
@@ -23,6 +29,76 @@ try:
     HAS_GENAI = True
 except ImportError:
     HAS_GENAI = False
+
+
+# ============================================================
+# CAMPOS DEL REPORTE DIDÁCTICO (v5.0)
+# ============================================================
+# Orden oficial de los siete bloques de cada ficha didáctica.
+CAMPOS_DIDACTICOS = (
+    ("que_se_ve", "Qué se ve"),
+    ("tecnica", "Interpretación técnica"),
+    ("simple", "En palabras simples"),
+    ("temario", "Relación con el temario"),
+    ("pedagogia", "Por qué importa pedagógicamente"),
+    ("errores", "Errores comunes al interpretar"),
+    ("no_aplica", "¿Qué técnicas NO se aplican aquí y por qué?"),
+)
+
+PLACEHOLDER_DIDACTICO = (
+    "[Fase 5B] Contenido pendiente: este bloque se completará con el análisis "
+    "didáctico generado por IA a partir de los datos reales del reporte."
+)
+
+
+def _normalizar_campos_didacticos(campos: dict | None, texto_base: str = "") -> dict:
+    """Completa las siete claves de una ficha didáctica sin dejar huecos.
+
+    Acepta tanto las claves canónicas como las etiquetas legibles y garantiza
+    que siempre exista texto, de modo que el PDF nunca dibuje un bloque vacío.
+    """
+    campos = campos or {}
+    base = (texto_base or "").strip() or PLACEHOLDER_DIDACTICO
+    salida = {}
+    for clave, etiqueta in CAMPOS_DIDACTICOS:
+        valor = campos.get(clave, campos.get(etiqueta))
+        valor = str(valor).strip() if valor is not None else ""
+        salida[clave] = valor or base
+    return salida
+
+
+def _parse_campos_didacticos(raw: str, fallback: dict) -> dict:
+    """Interpreta la respuesta JSON del modelo; ante cualquier fallo usa
+    `fallback` (siete claves ya normalizadas)."""
+    texto = (raw or "").strip()
+    if "```" in texto:
+        trozos = [t.strip() for t in texto.split("```") if t.strip()]
+        if trozos:
+            texto = max(trozos, key=len)
+            if texto.lower().startswith("json"):
+                texto = texto[4:].strip()
+    ini, fin = texto.find("{"), texto.rfind("}")
+    if ini == -1 or fin <= ini:
+        return fallback
+    try:
+        datos = json.loads(texto[ini:fin + 1])
+    except Exception:
+        return fallback
+    if not isinstance(datos, dict):
+        return fallback
+    salida = dict(fallback)
+    for clave, etiqueta in CAMPOS_DIDACTICOS:
+        valor = datos.get(clave, datos.get(etiqueta))
+        if isinstance(valor, (list, tuple)):
+            valor = " • ".join(str(v).strip() for v in valor if str(v).strip())
+        if valor is None:
+            continue
+        valor = str(valor).replace("\r\n", "\n").strip()
+        if valor:
+            salida[clave] = valor
+    return salida
+
+
 
 
 # ============================================================
@@ -109,13 +185,17 @@ def analizar_seccion_ia(
     imagen_png_bytes: bytes | None = None,
     instruccion_extra: str | None = None,
     doble_capa: bool = True,
-    tipo: str = "analisis",   # "analisis" | "decisiones"
+    tipo: str = "analisis",   # "analisis" | "decisiones" | "didactico"
+    fallback_campos: dict | None = None,
 ) -> dict:
     """
     Retorna siempre: {"tecnico": str, "simple": str | None}
     - tipo="analisis": "tecnico" = análisis formal; "simple" = versión coloquial.
     - tipo="decisiones": "tecnico" = lista de decisiones (una por línea, con '•');
       "simple" = None.
+    - tipo="didactico": devuelve las siete claves de CAMPOS_DIDACTICOS
+      (que_se_ve, tecnica, simple, temario, pedagogia, errores, no_aplica);
+      `fallback_campos` permite dar un texto de respaldo por clave.
     """
     global _CACHE_MISSES
 
@@ -130,7 +210,10 @@ def analizar_seccion_ia(
             pass
 
     api_key = _get_api_key()
-    fallback = {"tecnico": fallback_texto, "simple": None}
+    if tipo == "didactico":
+        fallback = _normalizar_campos_didacticos(fallback_campos, fallback_texto)
+    else:
+        fallback = {"tecnico": fallback_texto, "simple": None}
     if not HAS_GENAI or not api_key:
         return fallback
 
@@ -150,6 +233,35 @@ def analizar_seccion_ia(
             "nombres como 'R²', 'F1', 'AUC', 'silhouette', 'MSE'. "
             "Traduce todo a lenguaje operativo de cafetería (empleados, caja, horarios, mesas, promociones)."
         )
+    elif tipo == "didactico":
+        formato = (
+            "Devuelve EXCLUSIVAMENTE un objeto JSON válido, sin texto antes ni "
+            "después y sin bloques de código, con estas siete claves exactas:\n"
+            '"que_se_ve": descripción visual objetiva de la figura o tabla '
+            "(tipo de gráfico, ejes, escalas, colores, categorías y rangos "
+            "observados), 60-90 palabras.\n"
+            '"tecnica": interpretación técnica usando SOLO los valores '
+            "proporcionados (métricas, promedios, proporciones, tamaños de "
+            "muestra), 70-110 palabras.\n"
+            '"simple": la misma conclusión sin jerga y con una analogía '
+            "cotidiana de cafetería (filas, caja, mesas, personal), 50-80 "
+            "palabras.\n"
+            '"temario": unidad y concepto del temario al que corresponde, con '
+            'el formato "Unidad N — Concepto: justificación", 30-50 palabras.\n'
+            '"pedagogia": qué aprende el estudiante con esta ficha y qué error '
+            "conceptual previene, 40-70 palabras.\n"
+            '"errores": entre 2 y 3 errores frecuentes al interpretar esta '
+            "figura o tabla, separados por ' • ' en una sola línea, 40-70 "
+            "palabras.\n"
+            '"no_aplica": al menos 2 técnicas del temario que NO se aplican en '
+            "esta figura o tabla y la razón concreta (tipo de variable, "
+            "supuestos incumplidos, objetivo del análisis o costo "
+            "computacional), 60-100 palabras.\n"
+            "Cada valor debe ser una cadena de texto en español formal, sin "
+            "saltos de línea internos salvo en 'errores', sin Markdown y sin "
+            "emojis."
+        )
+
     elif doble_capa:
         formato = (
             "Devuelve EXACTAMENTE dos párrafos separados por una línea que contenga "
@@ -191,6 +303,12 @@ Instrucciones estrictas:
             contents=contents,
         )
         if response and response.text and response.text.strip():
+            if tipo == "didactico":
+                result = _parse_campos_didacticos(response.text, fallback)
+                _cache_set(key, json.dumps(result, ensure_ascii=False))
+                with _CACHE_LOCK:
+                    _CACHE_MISSES += 1
+                return result
             raw = _limpiar_texto_pdf(response.text)
             if tipo == "decisiones":
                 result = {"tecnico": raw, "simple": None}

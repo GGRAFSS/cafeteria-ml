@@ -172,6 +172,25 @@ with st.sidebar:
                 st.session_state["pdf_resumen"] = pdf_bytes
                 st.success("✅ Resumen generado.")
 
+    if st.button(
+        "🎓 Reporte didáctico",
+        use_container_width=True,
+        help="Explica cada figura y tabla en 7 bloques: qué se ve, interpretación "
+             "técnica, palabras simples, temario, pedagogía, errores comunes y "
+             "qué técnicas NO aplican.",
+    ):
+        if df.empty:
+            st.warning("Sin datos. Captura o carga registros primero.")
+        else:
+            with st.spinner("Generando reporte didáctico... (~15-20s)"):
+                import mod_reporte as mrp
+                pdf_bytes, err = mrp.generar_reporte_didactico(df)
+            if err:
+                st.error(f"Error: {err}")
+            else:
+                st.session_state["pdf_didactico"] = pdf_bytes
+                st.success("✅ Reporte didáctico generado.")
+
     if "pdf_reporte" in st.session_state:
         st.download_button(
             label="⬇️ Descargar reporte completo",
@@ -185,6 +204,15 @@ with st.sidebar:
             label="⬇️ Descargar resumen 1 página",
             data=st.session_state["pdf_resumen"],
             file_name=f"Resumen_Cafeteria_ML_{datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+
+    if "pdf_didactico" in st.session_state:
+        st.download_button(
+            label="⬇️ Descargar reporte didáctico",
+            data=st.session_state["pdf_didactico"],
+            file_name=f"Reporte_Didactico_{datetime.now().strftime('%Y%m%d')}.pdf",
             mime="application/pdf",
             use_container_width=True,
         )

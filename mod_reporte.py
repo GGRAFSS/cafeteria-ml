@@ -14,6 +14,12 @@ Fase 3B:
 - 15 capítulos numerados con contenido real (sin esqueletos) + Resumen
   Ejecutivo como front matter sin numerar.
 - Captions automáticos: 8 figuras + 7 tablas clave en sus índices.
+
+Fase 5A (v5.0):
+- Reporte Didáctico: método ficha_didactica() + generar_reporte_didactico().
+- Cada figura/tabla tiene una ficha de 7 bloques, incluido el bloque
+  "¿qué técnicas NO se aplican aquí y por qué?". En esta fase los textos
+  son placeholders: la Fase 5B los llena con IA.
 """
 import io
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -28,7 +34,7 @@ import stats_utils as su
 import mod_supervisado as ms
 import mod_no_supervisado as mns
 import mod_refuerzo as mr
-from mod_ia_analista import analizar_seccion_ia
+from mod_ia_analista import CAMPOS_DIDACTICOS, analizar_seccion_ia
 
 
 # ============================================================
@@ -71,6 +77,38 @@ def _get_asset_path(nombre: str) -> str | None:
     from pathlib import Path
     p = Path(__file__).parent / "assets" / nombre
     return str(p) if p.exists() else None
+
+
+# ============================================================
+# REPORTE DIDÁCTICO (v5.0)
+# ============================================================
+# Color de la etiqueta de cada bloque de la ficha didáctica.
+_COLOR_CAMPO_DIDACTICO = {
+    "que_se_ve": (0, 51, 102),      # azul institucional
+    "tecnica": (0, 51, 102),
+    "simple": (20, 90, 50),         # verde: lenguaje llano
+    "temario": (90, 60, 130),       # violeta: temario
+    "pedagogia": (150, 60, 20),     # naranja: pedagogía
+    "errores": (170, 30, 30),       # rojo: errores frecuentes
+    "no_aplica": (120, 70, 0),      # ámbar oscuro: bloque crítico
+}
+
+# Texto que ocupa cada bloque mientras la Fase 5B no esté implementada.
+_PLACEHOLDER_FICHA = (
+    "[Fase 5B] Contenido pendiente: este bloque se completará con el análisis "
+    "didáctico generado por IA a partir de los datos reales del reporte completo."
+)
+
+# Qué responde cada bloque (se usa en la página introductoria del reporte).
+_DESCRIPCION_CAMPO = {
+    "que_se_ve": "Descripción visual objetiva: qué muestra la figura o tabla.",
+    "tecnica": "Lectura técnica con los valores reales del proyecto.",
+    "simple": "La misma idea sin jerga, con una analogía cotidiana.",
+    "temario": "Unidad y concepto del temario que ilustra.",
+    "pedagogia": "Qué habilidad entrena y qué error conceptual previene.",
+    "errores": "Interpretaciones equivocadas frecuentes.",
+    "no_aplica": "Técnicas del temario que NO sirven aquí y por qué.",
+}
 
 
 # ============================================================
@@ -373,6 +411,84 @@ class ReporteCafeteria(FPDF):
         self.set_text_color(80, 80, 80)
         self.cell(0, 5, texto, 0, 1, "L")
         self.ln(1)
+
+    # ---------- FICHAS DIDÁCTICAS (Reporte Didáctico, v5.0) ----------
+    def ficha_didactica(self, numero: int, titulo: str, campos: dict,
+                        referencia: str | None = None,
+                        cita_fuente: str | None = None):
+        """Dibuja una ficha didáctica de siete bloques para una figura o tabla.
+
+        `campos` es el dict que devuelve
+        `analizar_seccion_ia(..., tipo="didactico")`: las siete claves de
+        CAMPOS_DIDACTICOS. Si falta una clave se dibuja un placeholder, de
+        modo que la ficha nunca queda vacía (Fase 5A = solo infraestructura).
+
+        `referencia` indica de dónde sale el objeto explicado (p. ej.
+        "Figura 3 del reporte completo") y `cita_fuente` la procedencia del
+        texto (IA o respaldo automático).
+        """
+        ancho_util = self.w - self.l_margin - self.r_margin
+        if self.get_y() > self.h - self.b_margin - 45:
+            self.add_page()
+
+        # --- Banda de título ---
+        encabezado = f"  Ficha D{numero}. {titulo}"
+        self.set_font(self.FONT, "B", 11)
+        if self.get_string_width(encabezado) > ancho_util - 4:
+            self.set_font(self.FONT, "B", 9)
+        self.set_fill_color(0, 51, 102)
+        self.set_text_color(255, 255, 255)
+        self.set_x(self.l_margin)
+        self.cell(ancho_util, 9, encabezado, 0, 1, "L", True)
+        self.set_text_color(0, 0, 0)
+
+        # --- Procedencia del objeto explicado ---
+        notas = [t for t in (referencia, cita_fuente) if t]
+        if notas:
+            self.set_font(self.FONT, "I", 7.5)
+            self.set_text_color(90, 90, 90)
+            for nota in notas:
+                self.set_x(self.l_margin)
+                self.multi_cell(ancho_util, 4, nota, 0, "L")
+            self.set_text_color(0, 0, 0)
+        self.ln(2)
+
+        # --- Siete bloques de contenido ---
+        for clave, etiqueta in CAMPOS_DIDACTICOS:
+            texto = (campos or {}).get(clave) or _PLACEHOLDER_FICHA
+            texto = str(texto).strip()
+
+            # Salto de página preventivo antes de cada bloque
+            if self.get_y() > self.h - self.b_margin - 28:
+                self.add_page()
+                self.set_x(self.l_margin)
+                self.set_font(self.FONT, "I", 7.5)
+                self.set_text_color(90, 90, 90)
+                self.cell(0, 4, f"Ficha D{numero} (continuación)", 0, 1, "L")
+                self.set_text_color(0, 0, 0)
+                self.ln(1)
+
+            color = _COLOR_CAMPO_DIDACTICO.get(clave, (0, 51, 102))
+            self.set_x(self.l_margin)
+            if clave == "no_aplica":
+                # Bloque crítico: fondo ámbar para que no pase desapercibido
+                self.set_fill_color(255, 243, 205)
+                self.set_text_color(*color)
+                self.set_font(self.FONT, "B", 9)
+                self.cell(ancho_util, 6, f" {etiqueta}", 0, 1, "L", True)
+                self.set_x(self.l_margin)
+                self.set_font(self.FONT, "", 9)
+                self.multi_cell(ancho_util, 4.6, texto, 0, "L")
+            else:
+                self.set_text_color(*color)
+                self.set_font(self.FONT, "B", 9)
+                self.multi_cell(ancho_util, 5, etiqueta, 0, "L")
+                self.set_x(self.l_margin)
+                self.set_text_color(0, 0, 0)
+                self.set_font(self.FONT, "", 9)
+                self.multi_cell(ancho_util, 4.6, texto, 0, "L")
+            self.set_text_color(0, 0, 0)
+            self.ln(2.5)
 
     # ---------- PORTADA INSTITUCIONAL ----------
     def portada_institucional(self):
@@ -2102,3 +2218,200 @@ def generar_resumen_pdf(df: pd.DataFrame) -> tuple:
         import traceback
         traceback.print_exc()
         return None, f"Error al generar resumen: {e}"
+
+
+# ============================================================
+# FASE 5A: REPORTE DIDÁCTICO (infraestructura)
+# ============================================================
+def _fichas_didacticas_placeholder(ctx: dict, df=None) -> list[dict]:
+    """Devuelve las 15 fichas (8 figuras + 7 tablas) con textos placeholder.
+
+    Fase 5A: solo estructura. Cada dict trae `titulo`, `referencia` y
+    `campos` (las siete claves de CAMPOS_DIDACTICOS). La Fase 5B sustituirá
+    `campos` por el resultado de `analizar_seccion_ia(tipo="didactico")`.
+    """
+    contexto = (ctx or {}).get("contexto", {})
+    mejor = contexto.get("clasificacion", {}).get("mejor_modelo", "el mejor modelo")
+
+    def _ficha(titulo, referencia):
+        return {
+            "titulo": titulo,
+            "referencia": referencia,
+            "campos": {clave: _PLACEHOLDER_FICHA for clave, _ in CAMPOS_DIDACTICOS},
+        }
+
+    figuras = [
+        ("Figura 1. Dispersión real vs predicho del modelo lineal",
+         "Figura 1 del reporte completo · Unidad 1 (regresión lineal)"),
+        (f"Figura 2. Matriz de confusión del modelo {mejor}",
+         "Figura 2 del reporte completo · Unidad 2 (clasificación)"),
+        (f"Figura 3. Curva ROC del modelo {mejor}",
+         "Figura 3 del reporte completo · Unidad 2 (evaluación de clasificadores)"),
+        ("Figura 4. Selección de k mediante método del codo",
+         "Figura 4 del reporte completo · Unidad 3 (K-Means)"),
+        ("Figura 5. Visualización de clústeres K-Means en PCA 2D",
+         "Figura 5 del reporte completo · Unidad 3 (clustering y PCA)"),
+        ("Figura 6. Dendrograma del clustering jerárquico aglomerativo",
+         "Figura 6 del reporte completo · Unidad 3 (clustering jerárquico)"),
+        ("Figura 7. Curva de aprendizaje del agente Q-Learning",
+         "Figura 7 del reporte completo · Unidad 4 (aprendizaje por refuerzo)"),
+        ("Figura 8. Matriz Q final: valor por estado y acción",
+         "Figura 8 del reporte completo · Unidad 4 (Q-Learning)"),
+    ]
+    tablas = [
+        ("Tabla 1. Indicadores clave del proyecto",
+         "Tabla 1 del reporte completo · Resumen ejecutivo"),
+        ("Tabla 2. Estadísticas descriptivas de variables numéricas",
+         "Tabla 2 del reporte completo · Unidad 1 (estadística descriptiva)"),
+        ("Tabla 3. Detección de outliers por método IQR",
+         "Tabla 3 del reporte completo · Unidad 1 (limpieza de datos)"),
+        ("Tabla 4. Métricas de evaluación de modelos de regresión",
+         "Tabla 4 del reporte completo · Unidad 1 (métricas de regresión)"),
+        ("Tabla 5. Comparación de clasificadores: F1 y Accuracy",
+         "Tabla 5 del reporte completo · Unidad 2 (métricas de clasificación)"),
+        ("Tabla 6. Comparación train vs test para detección de overfitting",
+         "Tabla 6 del reporte completo · Unidad 2 (generalización)"),
+        ("Tabla 7. Cobertura de los 12 puntos de la rúbrica",
+         "Tabla 7 del reporte completo · Cierre y trazabilidad"),
+    ]
+    return [_ficha(t, r) for t, r in figuras + tablas]
+
+
+def _cuerpo_didactico(pdf, fichas: list, df=None):
+    """Dibuja la introducción y las fichas; registra cada ficha en el índice."""
+    pdf.add_page()
+    pdf.cap_actual = ""
+    pdf.set_x(pdf.l_margin)
+    pdf.set_font(pdf.FONT, "B", 16)
+    pdf.set_text_color(0, 51, 102)
+    pdf.cell(0, 10, "Reporte Didáctico", 0, 1, "L")
+    pdf.set_font(pdf.FONT, "", 9)
+    pdf.set_text_color(0, 0, 0)
+    pdf.multi_cell(0, 5, (
+        "Este documento acompaña al reporte técnico y explica, una por una, "
+        "cada figura y cada tabla que aparecen en él. La idea es que cualquier "
+        "persona pueda reconocer el concepto de Aprendizaje Automático que hay "
+        "detrás de cada resultado, sin necesidad de dominar la notación "
+        "matemática de antemano."
+    ))
+    pdf.ln(2)
+    pdf.subtitulo("Cómo leer cada ficha")
+    pdf.parrafo(
+        "Cada ficha sigue siempre el mismo orden de siete bloques. Los seis "
+        "primeros construyen la comprensión: qué se ve, qué significa "
+        "técnicamente, cómo se explicaría en palabras simples, a qué unidad del "
+        "temario corresponde, por qué importa aprenderlo y qué errores se "
+        "cometen al interpretarlo. El séptimo bloque responde una pregunta que "
+        "casi nunca se plantea: qué técnicas del temario NO se aplican en esa "
+        "figura o tabla y por qué. Ese bloque evita el error de creer que toda "
+        "técnica sirve para cualquier problema."
+    )
+    pdf.subtitulo("Estructura de cada ficha")
+    pdf.tabla_larga(
+        [(etiqueta, _DESCRIPCION_CAMPO.get(clave, ""))
+         for clave, etiqueta in CAMPOS_DIDACTICOS],
+        ancho1=62, ancho2=128,
+    )
+    pdf.subtitulo("Mapa de fichas incluidas")
+    pdf.tabla_larga(
+        [(f"D{i}. {f['titulo']}", f["referencia"])
+         for i, f in enumerate(fichas, 1)],
+        ancho1=75, ancho2=115,
+    )
+    pdf.set_font(pdf.FONT, "I", 8)
+    pdf.set_text_color(110, 110, 110)
+    pdf.multi_cell(0, 4, (
+        "Versión 5.0 — infraestructura del reporte didáctico. Los textos de "
+        "cada ficha se completan con el análisis de la Fase 5B."
+    ))
+    pdf.set_text_color(0, 0, 0)
+
+    # --- Fichas: una por página, registradas en el índice ---
+    pdf.cap_actual = "Reporte Didáctico · Fichas"
+    for i, ficha in enumerate(fichas, 1):
+        pdf.add_page()
+        pdf.indice_caps[f"D{i}. {ficha['titulo']}"] = pdf.page_no()
+        pdf.ficha_didactica(
+            i,
+            ficha["titulo"],
+            ficha.get("campos") or {},
+            referencia=ficha.get("referencia"),
+        )
+
+
+def _render_didactico(fichas: list, df=None) -> tuple:
+    """Doble pasada del reporte didáctico: borrador, medición y final.
+
+    Render #1 (borrador) dibuja portada + introducción + fichas y registra la
+    página real de cada ficha en `indice_caps`.
+    La medición dibuja portada + el índice de fichas en un PDF desechable para
+    saber cuántas páginas ocupa (no se asume un offset fijo: con 15 fichas el
+    índice puede pasar de una página).
+    Render #2 (final) antepone el índice con las páginas desplazadas por ese
+    offset, de modo que la numeración coincide con el documento real.
+
+    `total_pages` se fija antes de dibujar para que el pie imprima
+    "Página N de T" sin una tercera pasada.
+    """
+    # ---------- RENDER #1: BORRADOR ----------
+    pdf1 = ReporteCafeteria()
+    pdf1.modo = "borrador"
+    pdf1.set_auto_page_break(auto=True, margin=15)
+    pdf1.portada_institucional()
+    _cuerpo_didactico(pdf1, fichas, df)
+    paginas_borrador = pdf1.page_no()
+
+    # ---------- MEDICIÓN: páginas que ocupa el índice ----------
+    pdf_med = ReporteCafeteria()
+    pdf_med.set_auto_page_break(auto=True, margin=15)
+    pdf_med.portada_institucional()
+    pdf_med._cabecera_indice("Índice de Fichas Didácticas")
+    for titulo in pdf1.indice_caps:
+        pdf_med._fila_indice(titulo, 10)
+    pdf_med._saltar_header_footer(False)
+    offset = pdf_med.page_no() - 1          # -1 = portada
+    paginas_total = paginas_borrador + offset
+
+    # ---------- RENDER #2: FINAL ----------
+    pdf2 = ReporteCafeteria()
+    pdf2.modo = "final"
+    pdf2.total_pages = paginas_total
+    pdf2.set_auto_page_break(auto=True, margin=15)
+    pdf2.portada_institucional()
+    pdf2._cabecera_indice("Índice de Fichas Didácticas")
+    for titulo, pagina in pdf1.indice_caps.items():
+        pdf2._fila_indice(titulo, pagina + offset)
+    pdf2._saltar_header_footer(False)
+    _cuerpo_didactico(pdf2, fichas, df)
+
+    info = {
+        "fichas": len(fichas),
+        "paginas_borrador": paginas_borrador,
+        "paginas_indice": offset,
+        "paginas_total": paginas_total,
+        "paginas_reales": pdf2.page_no(),
+    }
+    return pdf2, info
+
+
+def generar_reporte_didactico(df: pd.DataFrame) -> tuple:
+    """Genera el Reporte Didáctico (v5.0). Fase 5A: estructura con placeholders.
+
+    Reutiliza `_construir_contexto` para que la Fase 5B solo tenga que cambiar
+    los textos de cada ficha por el resultado de
+    `analizar_seccion_ia(..., tipo="didactico")`. Hoy no consume cuota de IA.
+    """
+    if df.empty or len(df) < 20:
+        return None, ("Se necesitan al menos 20 registros para generar "
+                      "el reporte didáctico.")
+
+    try:
+        ctx = _construir_contexto(df)
+        fichas = _fichas_didacticas_placeholder(ctx, df)
+        pdf, _info = _render_didactico(fichas, df)
+        return bytes(pdf.output()), None
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return None, f"Error al generar reporte didáctico: {e}"
