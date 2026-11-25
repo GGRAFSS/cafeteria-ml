@@ -22,14 +22,6 @@ import mod_refuerzo as mr
 from datetime import datetime
 
 # ============================================================
-# DEBUG — Verificar que Streamlit Cloud lee el código nuevo
-# ============================================================
-st.write(
-    f"🔍 Versión data_manager: "
-    f"{'CON FIX' if hasattr(dm, '_clean_value') and 'forzando IDs nuevos' in dm.bulk_insert.__doc__ else 'VIEJA'}"
-)
-
-# ============================================================
 # CONFIGURACIÓN DE PÁGINA
 # ============================================================
 st.set_page_config(

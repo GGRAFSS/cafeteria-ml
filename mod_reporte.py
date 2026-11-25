@@ -1,19 +1,19 @@
 """
-MÃ³dulo de GeneraciÃ³n de Reporte PDF
-Compila resultados de las 4 unidades + anÃ¡lisis IA crÃ­tico + plan operativo.
+Módulo de Generación de Reporte PDF
+Compila resultados de las 4 unidades + análisis IA crítico + plan operativo.
 
 v3.3:
-- Cada grÃ¡fica/tabla tiene: anÃ¡lisis IA (tÃ©cnico + simple) + preguntas guÃ­a
+- Cada gráfica/tabla tiene: análisis IA (técnico + simple) + preguntas guía
   + decisiones operativas sugeridas por IA.
-- Dendrograma ahora tiene bloque completo (anÃ¡lisis + preguntas + decisiones).
-- Riesgos incluye decisiones de mitigaciÃ³n.
-- 27 tareas IA en paralelo (16 anÃ¡lisis + 11 decisiones).
-- CachÃ© de respuestas IA + fallbacks robustos.
+- Dendrograma ahora tiene bloque completo (análisis + preguntas + decisiones).
+- Riesgos incluye decisiones de mitigación.
+- 27 tareas IA en paralelo (16 análisis + 11 decisiones).
+- Caché de respuestas IA + fallbacks robustos.
 
 Fase 3B:
-- 15 capÃ­tulos numerados con contenido real (sin esqueletos) + Resumen
+- 15 capítulos numerados con contenido real (sin esqueletos) + Resumen
   Ejecutivo como front matter sin numerar.
-- Captions automÃ¡ticos: 8 figuras + 7 tablas clave en sus Ã­ndices.
+- Captions automáticos: 8 figuras + 7 tablas clave en sus índices.
 """
 import io
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -104,7 +104,7 @@ class ReporteCafeteria(FPDF):
         """Registra DejaVu Sans (Unicode) desde los TTF de matplotlib.
 
         fpdf2 >= 2.8 ya no acepta `uni=` en add_font(); la firma moderna
-        detecta el mapeo Unicode automÃ¡ticamente.
+        detecta el mapeo Unicode automáticamente.
         """
         try:
             import matplotlib
@@ -121,9 +121,9 @@ class ReporteCafeteria(FPDF):
         except Exception:
             pass
 
-    # ---------- REGISTROS / ÃNDICES ----------
+    # ---------- REGISTROS / ÍNDICES ----------
     def _init_registros(self):
-        """Limpia los dicts de Ã­ndices al inicio de cada generaciÃ³n."""
+        """Limpia los dicts de índices al inicio de cada generación."""
         self.indice_caps = {}      # {alias: pagina}
         self.indice_figs = {}      # {alias: pagina}
         self.indice_tabs = {}      # {alias: pagina}
@@ -137,15 +137,15 @@ class ReporteCafeteria(FPDF):
         self._paginas_sin_footer = set()
 
     def _saltar_header_footer(self, skip: bool):
-        """Activa/desactiva encabezado y pie desde la pÃ¡gina actual.
+        """Activa/desactiva encabezado y pie desde la página actual.
 
-        Se guarda el nÃºmero de pÃ¡gina en un set porque el pie se dibuja al
-        CERRAR la pÃ¡gina (siguiente add_page() u output()), no al inicio.
+        Se guarda el número de página en un set porque el pie se dibuja al
+        CERRAR la página (siguiente add_page() u output()), no al inicio.
         """
         self.page_skip_header = skip
         self.page_skip_footer = skip
         if skip:
-            pagina = self.page_no() or 1     # portada: aÃºn no hay pÃ¡gina creada
+            pagina = self.page_no() or 1     # portada: aún no hay página creada
             self._paginas_sin_header.add(pagina)
             self._paginas_sin_footer.add(pagina)
 
@@ -153,16 +153,16 @@ class ReporteCafeteria(FPDF):
         if self.page_skip_header or self.page_no() in self._paginas_sin_header:
             return
         if not self.cap_actual:
-            # Portada / Ã­ndices (front matter): sin encabezado. Cubre tambiÃ©n
-            # las pÃ¡ginas de desbordamiento de un Ã­ndice.
+            # Portada / índices (front matter): sin encabezado. Cubre también
+            # las páginas de desbordamiento de un índice.
             return
         self.set_font(self.FONT, "B", 8)
         self.set_text_color(120, 120, 120)
-        # TÃ­tulo corto a la izquierda
-        self.cell(95, 5, "CafeterÃ­a Universitaria â€” Aprendizaje AutomÃ¡tico", 0, 0, "L")
-        # CapÃ­tulo actual a la derecha
+        # Título corto a la izquierda
+        self.cell(95, 5, "Cafetería Universitaria — Aprendizaje Automático", 0, 0, "L")
+        # Capítulo actual a la derecha
         self.cell(0, 5, self.cap_actual, 0, 1, "R")
-        # LÃ­nea horizontal fina
+        # Línea horizontal fina
         self.set_draw_color(200, 200, 200)
         self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
         self.ln(2)
@@ -174,21 +174,21 @@ class ReporteCafeteria(FPDF):
         self.set_font(self.FONT, "I", 8)
         self.set_text_color(150, 150, 150)
         if self.total_pages > 0:
-            texto = f"PÃ¡gina {self.page_no()} de {self.total_pages}"
+            texto = f"Página {self.page_no()} de {self.total_pages}"
         else:
-            texto = f"PÃ¡gina {self.page_no()}"
+            texto = f"Página {self.page_no()}"
         self.cell(0, 10, texto, 0, 0, "C")
 
-    # ---------- BÃSICOS ----------
+    # ---------- BÁSICOS ----------
     def titulo_capitulo(self, num, titulo):
-        """Abre pÃ¡gina nueva, registra el capÃ­tulo en el Ã­ndice y lo dibuja.
+        """Abre página nueva, registra el capítulo en el índice y lo dibuja.
 
         Se usa `page_no() > 0` (v3.3 usaba `add_page()` incondicional y la
-        propuesta `> 1` rompÃ­a el render borrador, donde la portada ES la
-        pÃ¡gina 1: el capÃ­tulo 1 se dibujaba encima de ella).
+        propuesta `> 1` rompía el render borrador, donde la portada ES la
+        página 1: el capítulo 1 se dibujaba encima de ella).
 
         `cap_actual` se actualiza ANTES de add_page() para que el encabezado
-        de la primera pÃ¡gina del capÃ­tulo ya muestre el capÃ­tulo correcto.
+        de la primera página del capítulo ya muestre el capítulo correcto.
         """
         alias = f"{num}. {titulo}"
         self.cap_actual = f"Cap. {num}: {titulo[:40]}"
@@ -221,7 +221,7 @@ class ReporteCafeteria(FPDF):
         if tecnico:
             self.set_font(self.FONT, "I", 8)
             self.set_text_color(80, 80, 80)
-            self.multi_cell(0, 4, f">> AnÃ¡lisis tÃ©cnico: {tecnico}")
+            self.multi_cell(0, 4, f">> Análisis técnico: {tecnico}")
             self.ln(1)
         if simple:
             self.set_x(self.l_margin)
@@ -246,7 +246,7 @@ class ReporteCafeteria(FPDF):
 
     # ---------- DECISIONES SUGERIDAS ----------
     def decisiones_sugeridas(self, texto_o_lista):
-        """Lista de decisiones operativas. Acepta string multilÃ­nea o lista."""
+        """Lista de decisiones operativas. Acepta string multilínea o lista."""
         if not texto_o_lista:
             return
         self.set_x(self.l_margin)
@@ -256,10 +256,10 @@ class ReporteCafeteria(FPDF):
         else:
             lineas = [str(l).strip() for l in texto_o_lista if str(l).strip()]
 
-        # Filtrar viÃ±etas vacÃ­as
+        # Filtrar viñetas vacías
         lineas_limpias = []
         for l in lineas:
-            l_clean = l.lstrip("â€¢-* ").strip()
+            l_clean = l.lstrip("•-* ").strip()
             if l_clean:
                 lineas_limpias.append(l_clean)
         if not lineas_limpias:
@@ -272,17 +272,17 @@ class ReporteCafeteria(FPDF):
         self.set_text_color(0, 0, 0)
         for l in lineas_limpias:
             self.set_x(self.l_margin + 2)
-            self.multi_cell(0, 4.5, f"â€¢ {l}")
+            self.multi_cell(0, 4.5, f"• {l}")
         self.set_text_color(0, 0, 0)
         self.ln(2)
 
     # ---------- TABLAS ----------
     def tabla_metrica(self, filas, ancho1=60, ancho2=60,
-                      encabezados=("MÃ©trica", "Valor")):
+                      encabezados=("Métrica", "Valor")):
         """Tabla de dos columnas con encabezado personalizable.
 
-        `encabezados` permite rÃ³tulos distintos de "MÃ©trica"/"Valor" (p. ej.
-        "Concepto del temario"/"Â¿Aplica al proyecto?" en el cap. 3). El default
+        `encabezados` permite rótulos distintos de "Métrica"/"Valor" (p. ej.
+        "Concepto del temario"/"¿Aplica al proyecto?" en el cap. 3). El default
         conserva el comportamiento previo para todos los llamadores existentes.
         """
         self.set_x(self.l_margin)
@@ -310,8 +310,8 @@ class ReporteCafeteria(FPDF):
             self.set_fill_color(0, 51, 102)
             self.set_text_color(255, 255, 255)
             self.set_xy(self.l_margin, self.get_y())
-            self.cell(ancho1, 7, "TÃ©rmino", 1, 0, "C", True)
-            self.cell(ancho2, 7, "DefiniciÃ³n", 1, 1, "C", True)
+            self.cell(ancho1, 7, "Término", 1, 0, "C", True)
+            self.cell(ancho2, 7, "Definición", 1, 1, "C", True)
             self.set_font(self.FONT, "", 8)
             self.set_text_color(0, 0, 0)
 
@@ -351,7 +351,7 @@ class ReporteCafeteria(FPDF):
         self.ln(3)
         return img_bytes if return_bytes else None
 
-    # ---------- CAPTIONS (Ã­ndices de figuras y tablas) ----------
+    # ---------- CAPTIONS (índices de figuras y tablas) ----------
     def caption_figura(self, alias: str):
         """Registra el caption de una figura y lo dibuja DEBAJO de ella."""
         self.fig_counter += 1
@@ -378,9 +378,9 @@ class ReporteCafeteria(FPDF):
     def portada_institucional(self):
         """Portada tipo tesis con los dos logos institucionales.
 
-        No lleva encabezado ni pie: se marca la pÃ¡gina 1 como excluida.
+        No lleva encabezado ni pie: se marca la página 1 como excluida.
         """
-        # Desactivar header/footer en esta pÃ¡gina
+        # Desactivar header/footer en esta página
         self._saltar_header_footer(True)
         self.add_page()
 
@@ -395,30 +395,30 @@ class ReporteCafeteria(FPDF):
             # Centrado abajo: x = (210 - 28) / 2 = 91
             self.image(logo_ia, x=91, y=235, w=28)
 
-        # InstituciÃ³n
+        # Institución
         self.set_y(70)
         self.set_font(self.FONT, "B", 14)
         self.set_text_color(0, 51, 102)
-        self.cell(0, 8, "INSTITUTO TECNOLÃ“GICO DE TIJUANA", 0, 1, "C")
+        self.cell(0, 8, "INSTITUTO TECNOLÓGICO DE TIJUANA", 0, 1, "C")
         self.set_font(self.FONT, "", 11)
-        self.cell(0, 6, "MaestrÃ­a en Inteligencia Artificial", 0, 1, "C")
+        self.cell(0, 6, "Maestría en Inteligencia Artificial", 0, 1, "C")
         self.ln(8)
 
-        # LÃ­nea decorativa superior
+        # Línea decorativa superior
         self.set_draw_color(0, 51, 102)
         self.line(60, self.get_y(), 150, self.get_y())
         self.ln(10)
 
-        # TÃ­tulo del proyecto
+        # Título del proyecto
         self.set_font(self.FONT, "B", 18)
         self.set_text_color(0, 0, 0)
-        self.multi_cell(0, 9, "Reporte de Aprendizaje AutomÃ¡tico\nCafeterÃ­a Universitaria", 0, "C")
+        self.multi_cell(0, 9, "Reporte de Aprendizaje Automático\nCafetería Universitaria", 0, "C")
         self.ln(3)
         self.set_font(self.FONT, "I", 12)
         self.cell(0, 7, "Proyecto Integrador Final", 0, 1, "C")
         self.ln(6)
 
-        # LÃ­nea decorativa inferior
+        # Línea decorativa inferior
         self.set_draw_color(0, 51, 102)
         self.line(60, self.get_y(), 150, self.get_y())
         self.ln(15)
@@ -428,14 +428,14 @@ class ReporteCafeteria(FPDF):
         self.set_text_color(0, 0, 0)
         self.cell(0, 6, "Autores:", 0, 1, "C")
         self.set_font(self.FONT, "B", 11)
-        self.cell(0, 6, "RodrÃ­guez Avilez Selene", 0, 1, "C")
+        self.cell(0, 6, "Rodríguez Avilez Selene", 0, 1, "C")
         self.cell(0, 6, "Raygoza Flores Gabriel", 0, 1, "C")
         self.ln(8)
 
         # Docente
         self.set_font(self.FONT, "", 10)
-        self.cell(0, 6, "Docente: Dra. Claudia Ibeth GonzÃ¡lez Berrelleza", 0, 1, "C")
-        self.cell(0, 6, "Instituto TecnolÃ³gico de Tijuana - TecNM", 0, 1, "C")
+        self.cell(0, 6, "Docente: Dra. Claudia Ibeth González Berrelleza", 0, 1, "C")
+        self.cell(0, 6, "Instituto Tecnológico de Tijuana - TecNM", 0, 1, "C")
 
         # Fecha y lugar
         self.ln(10)
@@ -450,14 +450,14 @@ class ReporteCafeteria(FPDF):
         self.cell(0, 4, "App: https://cafeteria-ml-aprendizaje-auto.streamlit.app", 0, 1, "C")
         self.cell(0, 4, "Repo: https://github.com/GGRAFSS/cafeteria-ml", 0, 1, "C")
 
-        # Reactivar header/footer para las pÃ¡ginas siguientes
+        # Reactivar header/footer para las páginas siguientes
         self._saltar_header_footer(False)
 
-    # ---------- ÃNDICES ----------
+    # ---------- ÍNDICES ----------
     def _cabecera_indice(self, titulo: str):
-        """Prepara una pÃ¡gina de Ã­ndice: sin encabezado, con pie."""
-        self.page_skip_header = True      # el encabezado no va en esta pÃ¡gina
-        self.page_skip_footer = False     # el pie SÃ se dibuja
+        """Prepara una página de índice: sin encabezado, con pie."""
+        self.page_skip_header = True      # el encabezado no va en esta página
+        self.page_skip_footer = False     # el pie SÍ se dibuja
         self.add_page()
         self.page_skip_header = False
         self.cap_actual = ""              # el front matter no lleva cabecera
@@ -469,29 +469,33 @@ class ReporteCafeteria(FPDF):
         self.set_text_color(0, 0, 0)
 
     def _fila_indice(self, titulo: str, pagina: int):
-        """Fila del Ã­ndice: tÃ­tulo + puntos + pÃ¡gina. Trunca si el tÃ­tulo
+        """Fila del índice: título + puntos + página. Trunca si el título
         excede el ancho disponible."""
         self.set_x(self.l_margin)
 
         self.set_font(self.FONT, "", 9)
         self.set_text_color(0, 0, 0)
 
-        ancho_total = self.w - self.l_margin - self.r_margin
+        ancho_total = self.w - self.l_margin - self.r_margin  # ~190mm
         ancho_pagina = 15
         ancho_max_texto = ancho_total - ancho_pagina - 5
 
+        # Ancho real del título
         ancho_texto = self.get_string_width(titulo) + 2
         titulo_mostrar = titulo
 
+        # Truncar si excede el espacio
         if ancho_texto > ancho_max_texto:
             while ancho_texto > ancho_max_texto and len(titulo_mostrar) > 8:
                 titulo_mostrar = titulo_mostrar[:-1]
-                ancho_texto = self.get_string_width(titulo_mostrar + "â€¦") + 2
-            titulo_mostrar = titulo_mostrar + "â€¦"
+                ancho_texto = self.get_string_width(titulo_mostrar + "…") + 2
+            titulo_mostrar = titulo_mostrar + "…"
             ancho_texto = self.get_string_width(titulo_mostrar) + 2
 
+        # Título
         self.cell(ancho_texto, 6, titulo_mostrar, 0, 0, "L")
 
+        # Puntos
         ancho_puntos = ancho_total - ancho_texto - ancho_pagina
         if ancho_puntos >= 2:
             self.set_font(self.FONT, "", 8)
@@ -501,26 +505,30 @@ class ReporteCafeteria(FPDF):
             self.cell(ancho_puntos, 6, "." * num_puntos, 0, 0, "L")
             self.set_text_color(0, 0, 0)
 
+        # Página
         self.set_font(self.FONT, "B", 9)
         self.cell(ancho_pagina, 6, str(pagina), 0, 1, "R")
 
+        # Restaurar tipografía base para quien dibuje después
+        self.set_font(self.FONT, "", 10)
+
     def indice_contenido(self):
-        """Dibuja el Ã­ndice de contenido usando self.indice_caps."""
-        self._cabecera_indice("Ãndice de Contenido")
+        """Dibuja el índice de contenido usando self.indice_caps."""
+        self._cabecera_indice("Índice de Contenido")
         for titulo, pagina in self.indice_caps.items():
             self._fila_indice(titulo, pagina)
         self._saltar_header_footer(False)
 
     def indice_figuras(self):
-        """Dibuja el Ã­ndice de figuras usando self.indice_figs."""
-        self._cabecera_indice("Ãndice de Figuras")
+        """Dibuja el índice de figuras usando self.indice_figs."""
+        self._cabecera_indice("Índice de Figuras")
         for titulo, pagina in self.indice_figs.items():
             self._fila_indice(titulo, pagina)
         self._saltar_header_footer(False)
 
     def indice_tablas(self):
-        """Dibuja el Ã­ndice de tablas usando self.indice_tabs."""
-        self._cabecera_indice("Ãndice de Tablas")
+        """Dibuja el índice de tablas usando self.indice_tabs."""
+        self._cabecera_indice("Índice de Tablas")
         for titulo, pagina in self.indice_tabs.items():
             self._fila_indice(titulo, pagina)
         self._saltar_header_footer(False)
@@ -538,7 +546,7 @@ def _construir_contexto(df: pd.DataFrame) -> dict:
 
     res_reg = ms.entrenar_regresion(df)
     mejores = {}
-    for modelo in ["RegresiÃ³n LogÃ­stica", "KNN", "SVM", "Ãrbol de DecisiÃ³n"]:
+    for modelo in ["Regresión Logística", "KNN", "SVM", "Árbol de Decisión"]:
         r = ms.entrenar_clasificacion(df, modelo)
         if not r.get("error"):
             mejores[modelo] = r
@@ -671,11 +679,11 @@ def _preparar_tareas_ia(ctx: dict, png: dict) -> tuple[list, dict]:
         "mejor_modelo_supervisado": contexto.get("clasificacion", {}).get("mejor_modelo", "N/A"),
     }
 
-    # ---------- FALLBACKS DE ANÃLISIS ----------
+    # ---------- FALLBACKS DE ANÁLISIS ----------
     fallbacks = {
         "resumen": (
             f"El proyecto analiza {len_df} registros con consumo promedio de "
-            f"${resumen_exec['consumo_prom']:.2f} MXN y satisfacciÃ³n de "
+            f"${resumen_exec['consumo_prom']:.2f} MXN y satisfacción de "
             f"{resumen_exec['sat_prom']:.2f}/5. Mejor clasificador: "
             f"{contexto.get('clasificacion', {}).get('mejor_modelo', 'N/A')}."
         ),
@@ -685,8 +693,8 @@ def _preparar_tareas_ia(ctx: dict, png: dict) -> tuple[list, dict]:
             f"El {contexto['porcentaje_hora_pico']:.1f}% corresponde a hora pico."
         ),
         "reg": (
-            f"RÂ² Lineal={contexto.get('regresion', {}).get('lr_r2', 'N/A')}; "
-            f"RÂ² Ãrbol={contexto.get('regresion', {}).get('dt_r2', 'N/A')}."
+            f"R² Lineal={contexto.get('regresion', {}).get('lr_r2', 'N/A')}; "
+            f"R² Árbol={contexto.get('regresion', {}).get('dt_r2', 'N/A')}."
         ),
         "clf": (
             f"Mejor modelo: {contexto.get('clasificacion', {}).get('mejor_modelo', 'N/A')} "
@@ -696,180 +704,180 @@ def _preparar_tareas_ia(ctx: dict, png: dict) -> tuple[list, dict]:
             f"Silhouette k=3: {contexto.get('clustering_kmeans', {}).get('silhouette', 'N/A')}."
         ),
         "ana_dendro": (
-            "El dendrograma agrupa clientes por similitud. Las ramas mÃ¡s largas indican "
-            "separaciÃ³n clara entre grupos; los cortes Ã³ptimos aparecen donde la distancia "
+            "El dendrograma agrupa clientes por similitud. Las ramas más largas indican "
+            "separación clara entre grupos; los cortes óptimos aparecen donde la distancia "
             "salta con mayor pendiente."
         ),
         "rl": (
             f"Recompensa: {contexto['refuerzo_q_learning']['recompensa_prom_primeros_50']:.1f} "
-            f"â†’ {contexto['refuerzo_q_learning']['recompensa_prom_ultimos_50']:.1f}."
+            f"→ {contexto['refuerzo_q_learning']['recompensa_prom_ultimos_50']:.1f}."
         ),
         "plan": (
             "Ajustar turnos en hora pico, agilizar caja con pre-pago por app, "
             "y segmentar promociones por tipo de cliente."
         ),
         "riesgos": (
-            "Riesgos: muestra acotada, Q-Learning sobre simulaciÃ³n, posible "
-            "desbalance de clases. PrÃ³ximos pasos: mÃ¡s datos reales y telemetrÃ­a."
+            "Riesgos: muestra acotada, Q-Learning sobre simulación, posible "
+            "desbalance de clases. Próximos pasos: más datos reales y telemetría."
         ),
         "conclusiones": (
-            f"El anÃ¡lisis sobre {len_df} registros respalda decisiones operativas "
+            f"El análisis sobre {len_df} registros respalda decisiones operativas "
             f"en horario matutino combinando modelos supervisados, no supervisados "
             f"y de refuerzo."
         ),
-        # ---------- FASE 3B: capÃ­tulos 2, 3, 5, 6, 7 y 11 ----------
+        # ---------- FASE 3B: capítulos 2, 3, 5, 6, 7 y 11 ----------
         "ana_objetivos": (
-            "Los objetivos estÃ¡n alineados al ciclo de vida de ML: preparaciÃ³n, "
-            "selecciÃ³n, entrenamiento, evaluaciÃ³n e implementaciÃ³n. Cada uno "
+            "Los objetivos están alineados al ciclo de vida de ML: preparación, "
+            "selección, entrenamiento, evaluación e implementación. Cada uno "
             "cubre una unidad del temario y se materializa en la app funcional."
         ),
         "ana_marco": (
             "El proyecto aplica correctamente supervisado, no supervisado y "
-            "refuerzo. La exclusiÃ³n de Deep Learning y GANs estÃ¡ justificada "
-            "por el tamaÃ±o y estructura del dataset (120-200 registros tabulares)."
+            "refuerzo. La exclusión de Deep Learning y GANs está justificada "
+            "por el tamaño y estructura del dataset (120-200 registros tabulares)."
         ),
         "ana_preprocesamiento": (
-            "El pipeline aplica limpieza, normalizaciÃ³n y codificaciÃ³n. "
-            "StandardScaler es crÃ­tico para KNN y SVM; LabelEncoder es "
-            "suficiente para las 3 categorÃ­as por variable."
+            "El pipeline aplica limpieza, normalización y codificación. "
+            "StandardScaler es crítico para KNN y SVM; LabelEncoder es "
+            "suficiente para las 3 categorías por variable."
         ),
         "ana_division": (
-            "La divisiÃ³n 70/30 con random_state=42 es reproducible y reserva "
-            "~30% de los datos para una evaluaciÃ³n honesta. Con 120-200 "
-            "registros no conviene un tercer conjunto: la validaciÃ³n cruzada "
-            "interna del SVM (cv=3) cumple esa funciÃ³n sin restar datos."
+            "La división 70/30 con random_state=42 es reproducible y reserva "
+            "~30% de los datos para una evaluación honesta. Con 120-200 "
+            "registros no conviene un tercer conjunto: la validación cruzada "
+            "interna del SVM (cv=3) cumple esa función sin restar datos."
         ),
         "ana_seleccion": (
             "Se comparan 2 regresores, 4 clasificadores, 3 algoritmos de "
             "agrupamiento y 1 de refuerzo: cobertura amplia del temario con "
-            "modelos clÃ¡sicos adecuados a 120-200 registros tabulares. Los "
-            "ensembles y el Deep Learning quedan fuera por tamaÃ±o de muestra."
+            "modelos clásicos adecuados a 120-200 registros tabulares. Los "
+            "ensembles y el Deep Learning quedan fuera por tamaño de muestra."
         ),
         "ana_validacion": (
-            "Se observa overfitting en el Ãrbol (delta F1>0.15) y underfitting "
-            "leve en RegresiÃ³n Lineal (RÂ² bajo en train). El mejor modelo para "
+            "Se observa overfitting en el Árbol (delta F1>0.15) y underfitting "
+            "leve en Regresión Lineal (R² bajo en train). El mejor modelo para "
             "desplegar es el que minimiza delta manteniendo F1 alto."
         ),
         "dec_preprocesamiento": (
-            "â€¢ Documentar el proceso de captura para evitar outliers por error.\n"
-            "â€¢ Revisar el 5% de registros con Consumo>200 MXN.\n"
-            "â€¢ Ampliar la muestra antes de aplicar tÃ©cnicas avanzadas."
+            "• Documentar el proceso de captura para evitar outliers por error.\n"
+            "• Revisar el 5% de registros con Consumo>200 MXN.\n"
+            "• Ampliar la muestra antes de aplicar técnicas avanzadas."
         ),
         "dec_seleccion": (
-            "â€¢ Mantener el modelo mÃ¡s simple que alcance F1 â‰¥ 0.70.\n"
-            "â€¢ Documentar la justificaciÃ³n de cada exclusiÃ³n metodolÃ³gica.\n"
-            "â€¢ Reintroducir Random Forest cuando n > 500 registros.\n"
-            "â€¢ Revisar LDA/QDA si se necesita reducir dimensionalidad."
+            "• Mantener el modelo más simple que alcance F1 ≥ 0.70.\n"
+            "• Documentar la justificación de cada exclusión metodológica.\n"
+            "• Reintroducir Random Forest cuando n > 500 registros.\n"
+            "• Revisar LDA/QDA si se necesita reducir dimensionalidad."
         ),
         "dec_validacion": (
-            "â€¢ Desplegar el modelo con menor delta train/test (no el mayor F1).\n"
-            "â€¢ Ampliar muestra a â‰¥200 registros antes de generalizar.\n"
-            "â€¢ Reentrenar trimestralmente con datos nuevos."
+            "• Desplegar el modelo con menor delta train/test (no el mayor F1).\n"
+            "• Ampliar muestra a ≥200 registros antes de generalizar.\n"
+            "• Reentrenar trimestralmente con datos nuevos."
         ),
         # Decisiones
         "dec_resumen": (
-            "â€¢ Aumentar personal de caja en 8:00-9:00 AM (mayor afluencia).\n"
-            "â€¢ Lanzar promociÃ³n prepago por app para agilizar cobro.\n"
-            "â€¢ Segmentar ofertas segÃºn los 3 clÃºsteres de cliente detectados."
+            "• Aumentar personal de caja en 8:00-9:00 AM (mayor afluencia).\n"
+            "• Lanzar promoción prepago por app para agilizar cobro.\n"
+            "• Segmentar ofertas según los 3 clústeres de cliente detectados."
         ),
         "dec_calidad": (
-            "â€¢ Documentar el proceso de captura para evitar outliers por error humano.\n"
-            "â€¢ Revisar los registros con espera mayor a 25 minutos.\n"
-            "â€¢ Ampliar la muestra a mÃ¡s de 200 registros antes de generalizar."
+            "• Documentar el proceso de captura para evitar outliers por error humano.\n"
+            "• Revisar los registros con espera mayor a 25 minutos.\n"
+            "• Ampliar la muestra a más de 200 registros antes de generalizar."
         ),
         "dec_reg": (
-            "â€¢ Usar RegresiÃ³n Lineal como modelo base (interpretable y suficiente).\n"
-            "â€¢ Descartar el Ãrbol si no mejora el RÂ² en mÃ¡s de 0.10.\n"
-            "â€¢ Agregar variables como clima o promociones al formulario."
+            "• Usar Regresión Lineal como modelo base (interpretable y suficiente).\n"
+            "• Descartar el Árbol si no mejora el R² en más de 0.10.\n"
+            "• Agregar variables como clima o promociones al formulario."
         ),
         "dec_clf": (
-            "â€¢ Priorizar Recall sobre Precision (no perder clientes insatisfechos).\n"
-            "â€¢ Mantener RegresiÃ³n LogÃ­stica como modelo de producciÃ³n.\n"
-            "â€¢ Recolectar mÃ¡s encuestas de satisfacciÃ³n 1-3 (clase minoritaria).\n"
-            "â€¢ Revisar mesas con espera mayor a 8 minutos (mayor predictor)."
+            "• Priorizar Recall sobre Precision (no perder clientes insatisfechos).\n"
+            "• Mantener Regresión Logística como modelo de producción.\n"
+            "• Recolectar más encuestas de satisfacción 1-3 (clase minoritaria).\n"
+            "• Revisar mesas con espera mayor a 8 minutos (mayor predictor)."
         ),
         "dec_km": (
-            "â€¢ Nombrar los 3 clÃºsteres segÃºn perfil real (ej. estudiante exprÃ©s).\n"
-            "â€¢ DiseÃ±ar una promociÃ³n especÃ­fica por cada clÃºster.\n"
-            "â€¢ Probar k=4 antes de fijar el modelo final de segmentaciÃ³n."
+            "• Nombrar los 3 clústeres según perfil real (ej. estudiante exprés).\n"
+            "• Diseñar una promoción específica por cada clúster.\n"
+            "• Probar k=4 antes de fijar el modelo final de segmentación."
         ),
         "dec_dendro": (
-            "â€¢ Cortar el dendrograma donde aparezcan 3 ramas claramente separadas.\n"
-            "â€¢ Revisar clientes en ramas largas como casos atÃ­picos a analizar.\n"
-            "â€¢ Contrastar el resultado con K-Means antes de decidir el corte final."
+            "• Cortar el dendrograma donde aparezcan 3 ramas claramente separadas.\n"
+            "• Revisar clientes en ramas largas como casos atípicos a analizar.\n"
+            "• Contrastar el resultado con K-Means antes de decidir el corte final."
         ),
         "dec_rl": (
-            "â€¢ Aplicar polÃ­tica: 1 barista con afluencia baja, 2 con media, 3 con alta.\n"
-            "â€¢ Validar la polÃ­tica con telemetrÃ­a real durante una semana.\n"
-            "â€¢ Ajustar recompensas si se prioriza satisfacciÃ³n sobre ganancia."
+            "• Aplicar política: 1 barista con afluencia baja, 2 con media, 3 con alta.\n"
+            "• Validar la política con telemetría real durante una semana.\n"
+            "• Ajustar recompensas si se prioriza satisfacción sobre ganancia."
         ),
         "dec_riesgos": (
-            "â€¢ Recolectar datos en tiempo real para sustituir la simulaciÃ³n de Q-Learning.\n"
-            "â€¢ Balancear clases de satisfacciÃ³n antes de reentrenar el clasificador.\n"
-            "â€¢ Programar revisiÃ³n trimestral del modelo con datos nuevos."
+            "• Recolectar datos en tiempo real para sustituir la simulación de Q-Learning.\n"
+            "• Balancear clases de satisfacción antes de reentrenar el clasificador.\n"
+            "• Programar revisión trimestral del modelo con datos nuevos."
         ),
     }
 
     tareas = [
-        # ---------- ANÃLISIS ----------
+        # ---------- ANÁLISIS ----------
         ("resumen", ("Resumen Ejecutivo del Proyecto", contexto, fallbacks["resumen"]), {
             "instruccion_extra": (
-                "Genera un resumen ejecutivo (mÃ¡x 140 palabras) que cubra: "
-                "volumen de datos, consumo promedio, satisfacciÃ³n promedio, "
-                "mejor modelo supervisado con su F1, y la polÃ­tica Ã³ptima de "
-                "baristas. EnfÃ³cate en decisiones ejecutivas, no en tecnicismos."
+                "Genera un resumen ejecutivo (máx 140 palabras) que cubra: "
+                "volumen de datos, consumo promedio, satisfacción promedio, "
+                "mejor modelo supervisado con su F1, y la política óptima de "
+                "baristas. Enfócate en decisiones ejecutivas, no en tecnicismos."
             ),
         }),
-        ("calidad", ("DiagnÃ³stico de Calidad de Datos y Outliers", calidad_datos, fallbacks["calidad"]), {
+        ("calidad", ("Diagnóstico de Calidad de Datos y Outliers", calidad_datos, fallbacks["calidad"]), {
             "instruccion_extra": (
-                "Identifica si el porcentaje de outliers o la proporciÃ³n de "
+                "Identifica si el porcentaje de outliers o la proporción de "
                 "hora pico sesga el entrenamiento. Menciona riesgos por "
                 "registros incompletos y recomienda imputar, eliminar o mantener."
             ),
         }),
         ("reg", (
-            "RegresiÃ³n: lectura de grÃ¡fica + comparativa crÃ­tica",
+            "Regresión: lectura de gráfica + comparativa crítica",
             contexto.get("regresion", {}), fallbacks["reg"],
         ), {
             "imagen_png_bytes": png["reg"],
             "instruccion_extra": (
-                "Interpreta la grÃ¡fica real vs predicho Y compara los dos "
-                "modelos. NO repitas la tabla. EnfÃ³cate en: (1) patrÃ³n de "
-                "dispersiÃ³n (sesgo, outliers), (2) trade-off interpretabilidad "
-                "(lineal) vs no linealidad (Ã¡rbol), (3) cuÃ¡ndo conviene cada uno."
+                "Interpreta la gráfica real vs predicho Y compara los dos "
+                "modelos. NO repitas la tabla. Enfócate en: (1) patrón de "
+                "dispersión (sesgo, outliers), (2) trade-off interpretabilidad "
+                "(lineal) vs no linealidad (árbol), (3) cuándo conviene cada uno."
             ),
         }),
         ("clf", (
-            "ClasificaciÃ³n: lectura de matriz + comparativa crÃ­tica",
+            "Clasificación: lectura de matriz + comparativa crítica",
             contexto.get("clasificacion", {}), fallbacks["clf"],
         ), {
             "imagen_png_bytes": png["cm"],
             "instruccion_extra": (
-                "Interpreta la matriz de confusiÃ³n Y compara los 4 algoritmos. "
-                "NO repitas la tabla. EnfÃ³cate en: (1) trade-off Precision vs "
-                "Recall (cuÃ¡ndo priorizar Recall para no perder insatisfechos), "
-                "(2) por quÃ© SVM/KNN/Ãrbol pueden ganar o perder vs LogÃ­stica."
+                "Interpreta la matriz de confusión Y compara los 4 algoritmos. "
+                "NO repitas la tabla. Enfócate en: (1) trade-off Precision vs "
+                "Recall (cuándo priorizar Recall para no perder insatisfechos), "
+                "(2) por qué SVM/KNN/Árbol pueden ganar o perder vs Logística."
             ),
         }),
         ("km", (
-            "SegmentaciÃ³n No Supervisada (K-Means y PCA)",
+            "Segmentación No Supervisada (K-Means y PCA)",
             contexto.get("clustering_kmeans", {}), fallbacks["km"],
         ), {
             "imagen_png_bytes": png["km_pca"],
             "instruccion_extra": (
-                "Interpreta los clÃºsteres en el plano PCA. Menciona quÃ© tipo de "
-                "cliente podrÃ­a representar cada grupo y utilidad operativa."
+                "Interpreta los clústeres en el plano PCA. Menciona qué tipo de "
+                "cliente podría representar cada grupo y utilidad operativa."
             ),
         }),
         ("ana_dendro", (
-            "Clustering JerÃ¡rquico: lectura del dendrograma",
+            "Clustering Jerárquico: lectura del dendrograma",
             {"n_registros": len_df, "linkage": "ward"},
             fallbacks["ana_dendro"],
         ), {
             "imagen_png_bytes": png["jer"],
             "instruccion_extra": (
-                "Interpreta la estructura del dendrograma. Identifica el nÃºmero "
-                "Ã³ptimo de clÃºsteres mirando dÃ³nde las ramas se separan mÃ¡s. "
+                "Interpreta la estructura del dendrograma. Identifica el número "
+                "óptimo de clústeres mirando dónde las ramas se separan más. "
                 "Menciona si hay outliers (ramas muy largas)."
             ),
         }),
@@ -879,49 +887,49 @@ def _preparar_tareas_ia(ctx: dict, png: dict) -> tuple[list, dict]:
         ), {
             "imagen_png_bytes": png["ap"],
             "instruccion_extra": (
-                "Interpreta la curva de aprendizaje y la polÃ­tica Ã³ptima. "
-                "Indica si el agente converge y quÃ© decisiÃ³n operativa sugiere "
+                "Interpreta la curva de aprendizaje y la política óptima. "
+                "Indica si el agente converge y qué decisión operativa sugiere "
                 "para afluencia Baja/Media/Alta."
             ),
         }),
-        ("plan", ("Plan de AcciÃ³n Operativo Priorizado", contexto_plan, fallbacks["plan"]), {
+        ("plan", ("Plan de Acción Operativo Priorizado", contexto_plan, fallbacks["plan"]), {
             "instruccion_extra": (
-                "Genera 4-5 acciones concretas y priorizadas para la cafeterÃ­a "
-                "en horario 7-11 AM. Cada acciÃ³n con impacto esperado y "
-                "esfuerzo. Incluye turnos, agilizaciÃ³n de caja, promociones "
-                "segmentadas y gestiÃ³n de hora pico."
+                "Genera 4-5 acciones concretas y priorizadas para la cafetería "
+                "en horario 7-11 AM. Cada acción con impacto esperado y "
+                "esfuerzo. Incluye turnos, agilización de caja, promociones "
+                "segmentadas y gestión de hora pico."
             ),
         }),
-        ("riesgos", ("Riesgos, Supuestos y PrÃ³ximos Pasos", contexto, fallbacks["riesgos"]), {
+        ("riesgos", ("Riesgos, Supuestos y Próximos Pasos", contexto, fallbacks["riesgos"]), {
             "instruccion_extra": (
-                "Identifica 3-4 supuestos que podrÃ­an fallar (simulaciÃ³n vs "
-                "operaciÃ³n real en Q-Learning, clases desbalanceadas, tamaÃ±o "
-                "de muestra, estacionalidad). PropÃ³n 2-3 experimentos concretos."
+                "Identifica 3-4 supuestos que podrían fallar (simulación vs "
+                "operación real en Q-Learning, clases desbalanceadas, tamaño "
+                "de muestra, estacionalidad). Propón 2-3 experimentos concretos."
             ),
         }),
         ("conclusiones", ("Conclusiones Generales del Proyecto", contexto, fallbacks["conclusiones"]), {}),
-        # ---------- FASE 3B: ANÃLISIS DE LOS CAPÃTULOS NUEVOS ----------
+        # ---------- FASE 3B: ANÁLISIS DE LOS CAPÍTULOS NUEVOS ----------
         ("ana_objetivos", (
             "Objetivos del Proyecto",
             {
                 "objetivo_general": (
-                    "Desarrollar un sistema funcional de Aprendizaje AutomÃ¡tico que "
-                    "prediga el consumo, clasifique la satisfacciÃ³n, segmente clientes "
-                    "y optimice la asignaciÃ³n de personal en la cafeterÃ­a universitaria "
+                    "Desarrollar un sistema funcional de Aprendizaje Automático que "
+                    "prediga el consumo, clasifique la satisfacción, segmente clientes "
+                    "y optimice la asignación de personal en la cafetería universitaria "
                     "durante el horario matutino (7:00-11:00 AM)."
                 ),
                 "objetivos_especificos": [
-                    "PreparaciÃ³n de datos",
-                    "SelecciÃ³n de modelos",
-                    "Entrenamiento y optimizaciÃ³n",
-                    "EvaluaciÃ³n del desempeÃ±o",
-                    "ImplementaciÃ³n funcional",
+                    "Preparación de datos",
+                    "Selección de modelos",
+                    "Entrenamiento y optimización",
+                    "Evaluación del desempeño",
+                    "Implementación funcional",
                 ],
             },
             fallbacks["ana_objetivos"],
         ), {
             "instruccion_extra": (
-                "Analiza la alineaciÃ³n de los objetivos con el ciclo de vida "
+                "Analiza la alineación de los objetivos con el ciclo de vida "
                 "de ML. Comenta si cubren las 4 unidades del temario."
             ),
         }),
@@ -929,8 +937,8 @@ def _preparar_tareas_ia(ctx: dict, png: dict) -> tuple[list, dict]:
             "Marco Conceptual",
             {
                 "conceptos_aplicados": [
-                    "Aprendizaje supervisado (regresiÃ³n y clasificaciÃ³n)",
-                    "Aprendizaje no supervisado (K-Means, JerÃ¡rquico, DBSCAN)",
+                    "Aprendizaje supervisado (regresión y clasificación)",
+                    "Aprendizaje no supervisado (K-Means, Jerárquico, DBSCAN)",
                     "Aprendizaje por refuerzo (Q-Learning tabular)",
                 ],
                 "conceptos_excluidos": ["Deep Learning", "Transfer Learning", "GANs"],
@@ -939,8 +947,8 @@ def _preparar_tareas_ia(ctx: dict, png: dict) -> tuple[list, dict]:
             fallbacks["ana_marco"],
         ), {
             "instruccion_extra": (
-                "Justifica la exclusiÃ³n de Deep Learning, Transfer Learning y "
-                "GANs dado el tamaÃ±o y la naturaleza tabular del dataset."
+                "Justifica la exclusión de Deep Learning, Transfer Learning y "
+                "GANs dado el tamaño y la naturaleza tabular del dataset."
             ),
         }),
         ("ana_preprocesamiento", (
@@ -949,25 +957,25 @@ def _preparar_tareas_ia(ctx: dict, png: dict) -> tuple[list, dict]:
                 "pipeline": [
                     "dropna + filtro Consumo<=250",
                     "StandardScaler sobre X_train",
-                    "LabelEncoder en categÃ³ricas",
-                    "PCA(2) solo para visualizaciÃ³n",
+                    "LabelEncoder en categóricas",
+                    "PCA(2) solo para visualización",
                     "Outliers por IQR",
                 ],
                 "tecnicas_no_aplicadas": [
                     "One-Hot Encoding",
-                    "ImputaciÃ³n por media/mediana",
+                    "Imputación por media/mediana",
                     "t-SNE / UMAP",
                 ],
             },
             fallbacks["ana_preprocesamiento"],
         ), {
             "instruccion_extra": (
-                "Explica el impacto del preprocesamiento en KNN y SVM y por quÃ© "
-                "LabelEncoder basta con 3 categorÃ­as por variable."
+                "Explica el impacto del preprocesamiento en KNN y SVM y por qué "
+                "LabelEncoder basta con 3 categorías por variable."
             ),
         }),
         ("ana_division", (
-            "DivisiÃ³n de Datos (70/30)",
+            "División de Datos (70/30)",
             {
                 "n_registros": len_df,
                 "test_size": 0.3,
@@ -977,21 +985,21 @@ def _preparar_tareas_ia(ctx: dict, png: dict) -> tuple[list, dict]:
             fallbacks["ana_division"],
         ), {
             "instruccion_extra": (
-                "EvalÃºa si 70/30 es adecuado con el tamaÃ±o de muestra actual y "
-                "explica por quÃ© no se usa un conjunto de validaciÃ³n separado."
+                "Evalúa si 70/30 es adecuado con el tamaño de muestra actual y "
+                "explica por qué no se usa un conjunto de validación separado."
             ),
         }),
         ("ana_seleccion", (
-            "SelecciÃ³n de Modelos",
+            "Selección de Modelos",
             {
                 "modelos_aplicados": {
-                    "regresion": ["Lineal", "Ãrbol de RegresiÃ³n"],
-                    "clasificacion": ["LogÃ­stica", "KNN", "SVM", "Ãrbol"],
-                    "clustering": ["K-Means", "JerÃ¡rquico", "DBSCAN"],
+                    "regresion": ["Lineal", "Árbol de Regresión"],
+                    "clasificacion": ["Logística", "KNN", "SVM", "Árbol"],
+                    "clustering": ["K-Means", "Jerárquico", "DBSCAN"],
                     "refuerzo": ["Q-Learning tabular"],
                 },
                 "modelos_excluidos": [
-                    "RegresiÃ³n polinÃ³mica", "Naive Bayes",
+                    "Regresión polinómica", "Naive Bayes",
                     "Random Forest / XGBoost", "GMM", "Spectral Clustering",
                     "DQN / Policy Gradient / A2C",
                 ],
@@ -1000,32 +1008,32 @@ def _preparar_tareas_ia(ctx: dict, png: dict) -> tuple[list, dict]:
             fallbacks["ana_seleccion"],
         ), {
             "instruccion_extra": (
-                "Analiza la regla de selecciÃ³n aplicada (complejidad proporcional "
-                "al tamaÃ±o del dataset) y si las exclusiones estÃ¡n justificadas."
+                "Analiza la regla de selección aplicada (complejidad proporcional "
+                "al tamaño del dataset) y si las exclusiones están justificadas."
             ),
         }),
         ("ana_validacion", (
-            "ValidaciÃ³n y Overfitting",
+            "Validación y Overfitting",
             {
                 "n_registros": len_df,
                 "delta_umbral": 0.15,
                 "modelos_comparados": [
-                    "RegresiÃ³n Lineal (train vs test RÂ²)",
-                    "Ãrbol de RegresiÃ³n (train vs test RÂ²)",
+                    "Regresión Lineal (train vs test R²)",
+                    "Árbol de Regresión (train vs test R²)",
                     *[f"{m} (train vs test F1)" for m in ctx["mejores"]],
                 ],
                 "mitigaciones": [
-                    "max_depth=5 en Ã¡rboles",
-                    "RegularizaciÃ³n L2 en LogÃ­stica",
+                    "max_depth=5 en árboles",
+                    "Regularización L2 en Logística",
                     "CalibratedClassifierCV(cv=3) en SVM",
-                    "DivisiÃ³n 70/30 sin fuga de test",
+                    "División 70/30 sin fuga de test",
                 ],
             },
             fallbacks["ana_validacion"],
         ), {
             "instruccion_extra": (
                 "Interpreta los deltas train/test: distingue overfitting de "
-                "underfitting y recomienda quÃ© modelo desplegar."
+                "underfitting y recomienda qué modelo desplegar."
             ),
         }),
         ("dec_preprocesamiento", ("Decisiones - Preprocesamiento", contexto, fallbacks["dec_preprocesamiento"]), {
@@ -1033,26 +1041,26 @@ def _preparar_tareas_ia(ctx: dict, png: dict) -> tuple[list, dict]:
             "doble_capa": False,
             "instruccion_extra": "Sugiere 3-4 decisiones sobre manejo de datos.",
         }),
-        ("dec_seleccion", ("Decisiones - SelecciÃ³n de Modelos", contexto, fallbacks["dec_seleccion"]), {
+        ("dec_seleccion", ("Decisiones - Selección de Modelos", contexto, fallbacks["dec_seleccion"]), {
             "tipo": "decisiones",
             "doble_capa": False,
             "instruccion_extra": (
-                "Sugiere 3-4 decisiones sobre quÃ© modelos mantener y cuÃ¡ndo "
+                "Sugiere 3-4 decisiones sobre qué modelos mantener y cuándo "
                 "reintroducir los excluidos."
             ),
         }),
-        ("dec_validacion", ("Decisiones - ValidaciÃ³n", contexto, fallbacks["dec_validacion"]), {
+        ("dec_validacion", ("Decisiones - Validación", contexto, fallbacks["dec_validacion"]), {
             "tipo": "decisiones",
             "doble_capa": False,
-            "instruccion_extra": "Sugiere 3-4 acciones de mitigaciÃ³n.",
+            "instruccion_extra": "Sugiere 3-4 acciones de mitigación.",
         }),
         # ---------- DECISIONES ----------
         ("dec_resumen", ("Decisiones - Resumen Ejecutivo", contexto, fallbacks["dec_resumen"]), {
             "tipo": "decisiones",
             "doble_capa": False,
             "instruccion_extra": (
-                "BasÃ¡ndote en los KPIs, sugiere 3-4 decisiones operativas "
-                "accionables esta semana para la cafeterÃ­a."
+                "Basándote en los KPIs, sugiere 3-4 decisiones operativas "
+                "accionables esta semana para la cafetería."
             ),
         }),
         ("dec_calidad", ("Decisiones - Calidad de Datos", calidad_datos, fallbacks["dec_calidad"]), {
@@ -1063,46 +1071,46 @@ def _preparar_tareas_ia(ctx: dict, png: dict) -> tuple[list, dict]:
                 "capturados y la robustez del entrenamiento."
             ),
         }),
-        ("dec_reg", ("Decisiones - RegresiÃ³n", contexto.get("regresion", {}), fallbacks["dec_reg"]), {
+        ("dec_reg", ("Decisiones - Regresión", contexto.get("regresion", {}), fallbacks["dec_reg"]), {
             "tipo": "decisiones",
             "doble_capa": False,
             "instruccion_extra": (
-                "Sugiere 3-4 decisiones operativas a partir de las mÃ©tricas de "
-                "regresiÃ³n (RÂ², MSE). No repitas nÃºmeros, traduce a acciones."
+                "Sugiere 3-4 decisiones operativas a partir de las métricas de "
+                "regresión (R², MSE). No repitas números, traduce a acciones."
             ),
         }),
-        ("dec_clf", ("Decisiones - ClasificaciÃ³n", contexto.get("clasificacion", {}), fallbacks["dec_clf"]), {
+        ("dec_clf", ("Decisiones - Clasificación", contexto.get("clasificacion", {}), fallbacks["dec_clf"]), {
             "tipo": "decisiones",
             "doble_capa": False,
             "instruccion_extra": (
-                "Sugiere 3-4 decisiones operativas a partir de las mÃ©tricas de "
-                "clasificaciÃ³n. Prioriza acciones sobre personal, datos y modelo."
+                "Sugiere 3-4 decisiones operativas a partir de las métricas de "
+                "clasificación. Prioriza acciones sobre personal, datos y modelo."
             ),
         }),
         ("dec_km", ("Decisiones - K-Means", contexto.get("clustering_kmeans", {}), fallbacks["dec_km"]), {
             "tipo": "decisiones",
             "doble_capa": False,
             "instruccion_extra": (
-                "Sugiere 3-4 decisiones a partir de la segmentaciÃ³n K-Means."
+                "Sugiere 3-4 decisiones a partir de la segmentación K-Means."
             ),
         }),
-        ("dec_dendro", ("Decisiones - JerÃ¡rquico", {"n_registros": len_df}, fallbacks["dec_dendro"]), {
+        ("dec_dendro", ("Decisiones - Jerárquico", {"n_registros": len_df}, fallbacks["dec_dendro"]), {
             "tipo": "decisiones",
             "doble_capa": False,
             "instruccion_extra": (
                 "Sugiere 3-4 decisiones operativas a partir del clustering "
-                "jerÃ¡rquico y su lectura del dendrograma."
+                "jerárquico y su lectura del dendrograma."
             ),
         }),
         ("dec_rl", ("Decisiones - Refuerzo", contexto["refuerzo_q_learning"], fallbacks["dec_rl"]), {
             "tipo": "decisiones",
             "doble_capa": False,
             "instruccion_extra": (
-                "Sugiere 3-4 decisiones operativas basadas en la polÃ­tica "
-                "Ã³ptima de Q-Learning."
+                "Sugiere 3-4 decisiones operativas basadas en la política "
+                "óptima de Q-Learning."
             ),
         }),
-        ("dec_riesgos", ("Decisiones - MitigaciÃ³n de Riesgos", contexto, fallbacks["dec_riesgos"]), {
+        ("dec_riesgos", ("Decisiones - Mitigación de Riesgos", contexto, fallbacks["dec_riesgos"]), {
             "tipo": "decisiones",
             "doble_capa": False,
             "instruccion_extra": (
@@ -1164,23 +1172,23 @@ def generar_reporte_pdf(df: pd.DataFrame) -> tuple:
 # FASE 3: RENDER (DOBLE PASADA: BORRADOR + FINAL)
 # ============================================================
 def _render_reporte(ctx: dict, textos: dict, png: dict, df=None) -> tuple:
-    """Render #1 (borrador) + mediciÃ³n de Ã­ndices + Render #2 (final).
+    """Render #1 (borrador) + medición de índices + Render #2 (final).
 
-    Render #1 dibuja portada + resumen ejecutivo + capÃ­tulos y registra
-    aliasâ†’pÃ¡gina.
-    La mediciÃ³n dibuja portada + los 3 Ã­ndices en un PDF desechable para
-    saber CUÃNTAS pÃ¡ginas ocupan realmente (no se asume un offset fijo:
-    con 15 capÃ­tulos el Ã­ndice de figuras puede ocupar mÃ¡s de una pÃ¡gina).
-    Render #2 dibuja portada + Ã­ndices (con las pÃ¡ginas del borrador
-    desplazadas por ese offset) + resumen ejecutivo + los capÃ­tulos.
+    Render #1 dibuja portada + resumen ejecutivo + capítulos y registra
+    alias→página.
+    La medición dibuja portada + los 3 índices en un PDF desechable para
+    saber CUÁNTAS páginas ocupan realmente (no se asume un offset fijo:
+    con 15 capítulos el índice de figuras puede ocupar más de una página).
+    Render #2 dibuja portada + índices (con las páginas del borrador
+    desplazadas por ese offset) + resumen ejecutivo + los capítulos.
 
-    El Resumen Ejecutivo es front matter: va SIN nÃºmero despuÃ©s de los
-    Ã­ndices, por eso se dibuja aparte y se registra a mano en el Ã­ndice.
+    El Resumen Ejecutivo es front matter: va SIN número después de los
+    índices, por eso se dibuja aparte y se registra a mano en el índice.
 
     `paginas_total` (= borrador + offset) se fija en el Render #2 antes de
-    dibujar, de modo que el pie imprima "PÃ¡gina N de T" sin una 3ra pasada.
+    dibujar, de modo que el pie imprima "Página N de T" sin una 3ra pasada.
 
-    Retorna (pdf_final, info). Lo pesado (modelos, PNG, Gemini) ya estÃ¡
+    Retorna (pdf_final, info). Lo pesado (modelos, PNG, Gemini) ya está
     calculado en ctx/textos/png y NO se vuelve a ejecutar.
     """
     # ---------- RENDER #1: BORRADOR ----------
@@ -1192,13 +1200,13 @@ def _render_reporte(ctx: dict, textos: dict, png: dict, df=None) -> tuple:
     _construir_contenido(pdf1, ctx, textos, png, df)
     paginas_borrador = pdf1.page_no()
 
-    # ---------- MEDICIÃ“N: pÃ¡ginas que ocupan los Ã­ndices ----------
+    # ---------- MEDICIÓN: páginas que ocupan los índices ----------
     pdf_med = ReporteCafeteria()
     pdf_med.set_auto_page_break(auto=True, margin=15)
     pdf_med.portada_institucional()
-    # PÃ¡ginas FICTICIAS de 2 dÃ­gitos: el Ã­ndice final mostrarÃ¡ nÃºmeros de 2
-    # dÃ­gitos (offset=3 => 5..N por ahora) y asÃ­ el ancho de cada renglÃ³n es
-    # el mismo que en el PDF real, sin alterar el conteo de lÃ­neas por pÃ¡gina.
+    # Páginas FICTICIAS de 2 dígitos: el índice final mostrará números de 2
+    # dígitos (offset=3 => 5..N por ahora) y así el ancho de cada renglón es
+    # el mismo que en el PDF real, sin alterar el conteo de líneas por página.
     pdf_med.indice_caps = {k: 10 + i for i, k in enumerate(pdf1.indice_caps)}
     pdf_med.indice_figs = {k: 10 + i for i, k in enumerate(pdf1.indice_figs)}
     pdf_med.indice_tabs = {k: 10 + i for i, k in enumerate(pdf1.indice_tabs)}
@@ -1206,10 +1214,10 @@ def _render_reporte(ctx: dict, textos: dict, png: dict, df=None) -> tuple:
     pdf_med.indice_figuras()
     pdf_med.indice_tablas()
     offset = pdf_med.page_no() - 1      # -1 = portada
-    # El render final replica el borrador con `offset` pÃ¡ginas de Ã­ndices de
-    # mÃ¡s, asÃ­ que el total es exactamente paginas_borrador + offset. Se fija
-    # ANTES de dibujar para que el pie muestre "PÃ¡gina N de T" sin una 3ra
-    # pasada de mediciÃ³n (y sin que el texto del pie altere el layout, porque
+    # El render final replica el borrador con `offset` páginas de índices de
+    # más, así que el total es exactamente paginas_borrador + offset. Se fija
+    # ANTES de dibujar para que el pie muestre "Página N de T" sin una 3ra
+    # pasada de medición (y sin que el texto del pie altere el layout, porque
     # el pie se dibuja en la banda inferior).
     paginas_total = paginas_borrador + offset
 
@@ -1219,8 +1227,8 @@ def _render_reporte(ctx: dict, textos: dict, png: dict, df=None) -> tuple:
     pdf2.total_pages = paginas_total
     pdf2.set_auto_page_break(auto=True, margin=15)
     pdf2.portada_institucional()
-    # Ãndices con las pÃ¡ginas del borrador desplazadas por el offset.
-    # El Resumen Ejecutivo va PRIMERO (front matter, sin nÃºmero).
+    # Índices con las páginas del borrador desplazadas por el offset.
+    # El Resumen Ejecutivo va PRIMERO (front matter, sin número).
     pdf2.indice_caps = {"Resumen Ejecutivo": offset + 2}
     pdf2.indice_caps.update({k: v + offset for k, v in pdf1.indice_caps.items()})
     pdf2.indice_figs = {k: v + offset for k, v in pdf1.indice_figs.items()}
@@ -1242,21 +1250,21 @@ def _render_reporte(ctx: dict, textos: dict, png: dict, df=None) -> tuple:
 
 
 # ============================================================
-# FRONT MATTER: RESUMEN EJECUTIVO (sin numeraciÃ³n)
+# FRONT MATTER: RESUMEN EJECUTIVO (sin numeración)
 # ============================================================
 def _resumen_ejecutivo(pdf, ctx: dict, textos: dict, png: dict, df=None):
-    """Dibuja el Resumen Ejecutivo como front matter, sin nÃºmero.
+    """Dibuja el Resumen Ejecutivo como front matter, sin número.
 
-    Va DESPUÃ‰S de los 3 Ã­ndices y ANTES del capÃ­tulo 1. No usa
-    titulo_capitulo() porque no lleva numeraciÃ³n, pero SÃ se registra en el
-    Ã­ndice de contenido (clave sin nÃºmero) con la pÃ¡gina en la que arranca.
+    Va DESPUÉS de los 3 índices y ANTES del capítulo 1. No usa
+    titulo_capitulo() porque no lleva numeración, pero SÍ se registra en el
+    índice de contenido (clave sin número) con la página en la que arranca.
     """
     politica_records = ctx["politica_records"]
     contexto = ctx["contexto"]
 
-    pdf.cap_actual = "Resumen Ejecutivo"        # encabezado de la pÃ¡gina
-    # Se registra la pÃ¡gina en la que ARRANCARÃ el subtÃ­tulo (no add_page()
-    # todavÃ­a: igual que titulo_capitulo, el registro va antes de abrirla).
+    pdf.cap_actual = "Resumen Ejecutivo"        # encabezado de la página
+    # Se registra la página en la que ARRANCARÁ el subtítulo (no add_page()
+    # todavía: igual que titulo_capitulo, el registro va antes de abrirla).
     pdf.indice_caps["Resumen Ejecutivo"] = (pdf.page_no() or 0) + 1
     if pdf.page_no() > 0:
         pdf.add_page()
@@ -1265,36 +1273,36 @@ def _resumen_ejecutivo(pdf, ctx: dict, textos: dict, png: dict, df=None):
     pdf.nota_doble(textos["resumen"]["tecnico"], textos["resumen"]["simple"])
     pdf.subtitulo("KPIs Clave del Proyecto")
     politica_alta = next(
-        (p["Mejor AcciÃ³n"] for p in politica_records
+        (p["Mejor Acción"] for p in politica_records
          if p["Estado (Afluencia)"] == "Alta"), "N/A"
     )
     pdf.caption_tabla("Indicadores clave del proyecto")
     pdf.tabla_metrica([
         ("Registros en BD", f"{len(df)}"),
         ("Consumo promedio", f"${contexto['consumo_promedio_mxn']:.2f} MXN"),
-        ("SatisfacciÃ³n promedio", f"{contexto['satisfaccion_promedio']:.2f} / 5"),
+        ("Satisfacción promedio", f"{contexto['satisfaccion_promedio']:.2f} / 5"),
         ("% Hora pico", f"{contexto['porcentaje_hora_pico']:.1f}%"),
         ("Mejor clasificador", contexto.get("clasificacion", {}).get("mejor_modelo", "N/A")),
         ("F1 del mejor modelo", f"{contexto.get('clasificacion', {}).get('mejor_f1', 'N/A')}"),
-        ("PolÃ­tica Ã³ptima (afluencia alta)", politica_alta),
+        ("Política óptima (afluencia alta)", politica_alta),
     ])
     pdf.preguntas_guia([
-        "Â¿Los KPIs actuales coinciden con lo que percibe el personal de la cafeterÃ­a?",
-        "Â¿QuÃ© decisiÃ³n operativa NO cambiarÃ­a aunque empeoraran los KPIs?",
+        "¿Los KPIs actuales coinciden con lo que percibe el personal de la cafetería?",
+        "¿Qué decisión operativa NO cambiaría aunque empeoraran los KPIs?",
     ])
     pdf.decisiones_sugeridas(textos["dec_resumen"]["tecnico"])
 
 
 # ============================================================
-# CONTENIDO (capÃ­tulos) â€” dibujado en ambos renders
+# CONTENIDO (capítulos) — dibujado en ambos renders
 # ============================================================
 def _construir_contenido(pdf, ctx: dict, textos: dict, png: dict, df=None):
-    """Dibuja los 15 capÃ­tulos numerados sobre `pdf` (Fase 3B).
+    """Dibuja los 15 capítulos numerados sobre `pdf` (Fase 3B).
 
-    Los 7 capÃ­tulos que eran esqueletos en 3A (2, 3, 5, 6, 7, 11 y 13) ya
-    tienen contenido real, cada uno con su bloque de anÃ¡lisis IA. Las 8
+    Los 7 capítulos que eran esqueletos en 3A (2, 3, 5, 6, 7, 11 y 13) ya
+    tienen contenido real, cada uno con su bloque de análisis IA. Las 8
     figuras y las 7 tablas clave se registran con caption_figura() /
-    caption_tabla() para alimentar los Ã­ndices de figuras y tablas.
+    caption_tabla() para alimentar los índices de figuras y tablas.
     `df` solo se usa para `len(df)`.
     """
     res_reg = ctx["res_reg"]
@@ -1306,60 +1314,60 @@ def _construir_contenido(pdf, ctx: dict, textos: dict, png: dict, df=None):
     desc = ctx["desc"]
     outliers_summary = ctx["outliers_summary"]
 
-    # ---------- 1. DEFINICIÃ“N DEL PROBLEMA (antes "2. IntroducciÃ³n") ----------
-    pdf.titulo_capitulo("1", "DefiniciÃ³n del Problema")
+    # ---------- 1. DEFINICIÓN DEL PROBLEMA (antes "2. Introducción") ----------
+    pdf.titulo_capitulo("1", "Definición del Problema")
     pdf.parrafo(
-        "La cafeterÃ­a universitaria presenta alta afluencia en horario matutino "
-        "(7:00-11:00 AM), lo que genera cuellos de botella, insatisfacciÃ³n del "
-        "cliente y pÃ©rdida de ventas. La aplicaciÃ³n de tÃ©cnicas de Aprendizaje "
-        "AutomÃ¡tico permite predecir el comportamiento, segmentar perfiles y "
-        "optimizar la asignaciÃ³n de personal."
+        "La cafetería universitaria presenta alta afluencia en horario matutino "
+        "(7:00-11:00 AM), lo que genera cuellos de botella, insatisfacción del "
+        "cliente y pérdida de ventas. La aplicación de técnicas de Aprendizaje "
+        "Automático permite predecir el comportamiento, segmentar perfiles y "
+        "optimizar la asignación de personal."
     )
     pdf.subtitulo("Tipos de problemas abordados")
     pdf.parrafo(
-        "â€¢ RegresiÃ³n: PredicciÃ³n del Consumo Total (MXN).\n"
-        "â€¢ ClasificaciÃ³n: SatisfacciÃ³n Alta (4-5) vs Baja (1-3).\n"
-        "â€¢ Agrupamiento: SegmentaciÃ³n con K-Means, JerÃ¡rquico y DBSCAN.\n"
-        "â€¢ Refuerzo: OptimizaciÃ³n de personal mediante Q-Learning."
+        "• Regresión: Predicción del Consumo Total (MXN).\n"
+        "• Clasificación: Satisfacción Alta (4-5) vs Baja (1-3).\n"
+        "• Agrupamiento: Segmentación con K-Means, Jerárquico y DBSCAN.\n"
+        "• Refuerzo: Optimización de personal mediante Q-Learning."
     )
 
     # ---------- 2. PLANTEAMIENTO DE OBJETIVOS ----------
     pdf.titulo_capitulo("2", "Planteamiento de Objetivos")
     pdf.subtitulo("Objetivo General")
     pdf.parrafo(
-        "Desarrollar un sistema funcional de Aprendizaje AutomÃ¡tico que "
-        "prediga el consumo, clasifique la satisfacciÃ³n, segmente clientes y "
-        "optimice la asignaciÃ³n de personal en la cafeterÃ­a universitaria "
+        "Desarrollar un sistema funcional de Aprendizaje Automático que "
+        "prediga el consumo, clasifique la satisfacción, segmente clientes y "
+        "optimice la asignación de personal en la cafetería universitaria "
         "durante el horario matutino (7:00-11:00 AM), para apoyar la toma "
         "de decisiones operativas basadas en datos."
     )
-    pdf.subtitulo("Objetivos EspecÃ­ficos")
+    pdf.subtitulo("Objetivos Específicos")
     pdf.parrafo(
-        "1. PreparaciÃ³n de datos: capturar, limpiar y validar registros en "
+        "1. Preparación de datos: capturar, limpiar y validar registros en "
         "Supabase, detectando outliers por IQR y clasificando variables "
-        "segÃºn su naturaleza estadÃ­stica.\n"
-        "2. SelecciÃ³n de modelos: comparar 2 modelos de regresiÃ³n, 4 de "
-        "clasificaciÃ³n, 3 de agrupamiento y 1 de refuerzo, justificando "
-        "cada elecciÃ³n segÃºn el contexto del problema.\n"
-        "3. Entrenamiento y optimizaciÃ³n: entrenar con divisiÃ³n 70/30 "
-        "reproducible (random_state=42), ajustando hiperparÃ¡metros clave "
+        "según su naturaleza estadística.\n"
+        "2. Selección de modelos: comparar 2 modelos de regresión, 4 de "
+        "clasificación, 3 de agrupamiento y 1 de refuerzo, justificando "
+        "cada elección según el contexto del problema.\n"
+        "3. Entrenamiento y optimización: entrenar con división 70/30 "
+        "reproducible (random_state=42), ajustando hiperparámetros clave "
         "por modelo (max_depth, n_neighbors, k, alpha, gamma).\n"
-        "4. EvaluaciÃ³n del desempeÃ±o: medir con MSE, RÂ², F1, AUC-ROC y "
+        "4. Evaluación del desempeño: medir con MSE, R², F1, AUC-ROC y "
         "Silhouette; comparar y justificar el modelo ganador por tipo de "
         "problema.\n"
-        "5. ImplementaciÃ³n funcional: desplegar una app Streamlit que "
+        "5. Implementación funcional: desplegar una app Streamlit que "
         "permita capturar datos, entrenar modelos y generar reportes PDF "
         "accionables."
     )
-    pdf.subtitulo("VinculaciÃ³n con el Temario del Curso")
+    pdf.subtitulo("Vinculación con el Temario del Curso")
     pdf.parrafo(
-        "Cada objetivo especÃ­fico corresponde a un paso del ciclo de vida "
-        "de un proyecto de Aprendizaje AutomÃ¡tico, cubriendo las 4 unidades "
+        "Cada objetivo específico corresponde a un paso del ciclo de vida "
+        "de un proyecto de Aprendizaje Automático, cubriendo las 4 unidades "
         "del temario: fundamentos (U1), aprendizaje supervisado (U2), no "
         "supervisado (U3) y por refuerzo (U4). La app integra los cuatro "
         "en un mismo sistema funcional."
     )
-    # AnÃ¡lisis IA (sin decisiones â€” es declarativo)
+    # Análisis IA (sin decisiones — es declarativo)
     pdf.nota_doble(
         textos["ana_objetivos"]["tecnico"],
         textos["ana_objetivos"]["simple"],
@@ -1367,96 +1375,96 @@ def _construir_contenido(pdf, ctx: dict, textos: dict, png: dict, df=None):
 
     # ---------- 3. MARCO CONCEPTUAL ----------
     pdf.titulo_capitulo("3", "Marco Conceptual")
-    pdf.subtitulo("DefiniciÃ³n de Aprendizaje AutomÃ¡tico aplicada al proyecto")
+    pdf.subtitulo("Definición de Aprendizaje Automático aplicada al proyecto")
     pdf.parrafo(
-        "SegÃºn Tom M. Mitchell (1997), un programa de computadora aprende "
+        "Según Tom M. Mitchell (1997), un programa de computadora aprende "
         "de la experiencia E con respecto a una clase de tareas T y una "
-        "medida de desempeÃ±o P, si su desempeÃ±o en T, medido por P, mejora "
+        "medida de desempeño P, si su desempeño en T, medido por P, mejora "
         "con E. En este proyecto:\n"
-        "â€¢ Tarea (T): predecir el consumo, clasificar la satisfacciÃ³n, "
-        "segmentar clientes y optimizar la asignaciÃ³n de personal.\n"
-        "â€¢ Experiencia (E): registros histÃ³ricos capturados en la "
-        "cafeterÃ­a durante el horario matutino.\n"
-        "â€¢ DesempeÃ±o (P): mÃ©tricas objetivas como MSE, RÂ², F1, AUC-ROC "
+        "• Tarea (T): predecir el consumo, clasificar la satisfacción, "
+        "segmentar clientes y optimizar la asignación de personal.\n"
+        "• Experiencia (E): registros históricos capturados en la "
+        "cafetería durante el horario matutino.\n"
+        "• Desempeño (P): métricas objetivas como MSE, R², F1, AUC-ROC "
         "y Silhouette."
     )
     pdf.subtitulo("Tipo de aprendizaje utilizado")
     pdf.parrafo(
-        "â€¢ Supervisado: regresiÃ³n (predicciÃ³n de Consumo_Total_MXN) y "
-        "clasificaciÃ³n (SatisfacciÃ³n Alta vs Baja).\n"
-        "â€¢ No supervisado: clustering (K-Means, JerÃ¡rquico, DBSCAN) para "
-        "segmentaciÃ³n de clientes sin etiquetas.\n"
-        "â€¢ Por refuerzo: Q-Learning tabular en un entorno simulado de "
-        "asignaciÃ³n de baristas."
+        "• Supervisado: regresión (predicción de Consumo_Total_MXN) y "
+        "clasificación (Satisfacción Alta vs Baja).\n"
+        "• No supervisado: clustering (K-Means, Jerárquico, DBSCAN) para "
+        "segmentación de clientes sin etiquetas.\n"
+        "• Por refuerzo: Q-Learning tabular en un entorno simulado de "
+        "asignación de baristas."
     )
     pdf.subtitulo("Conceptos del temario: aplicabilidad al proyecto")
     pdf.tabla_metrica([
-        ("Aprendizaje supervisado", "SÃ­ â€” regresiÃ³n y clasificaciÃ³n"),
-        ("Aprendizaje no supervisado", "SÃ­ â€” clustering con K-Means"),
-        ("Aprendizaje por refuerzo", "SÃ­ â€” Q-Learning tabular"),
-        ("FunciÃ³n objetivo", "SÃ­ â€” MSE, Log-loss, Inercia, Q(s,a)"),
-        ("Dataset y etiquetas", "SÃ­ â€” 9 variables, 2 targets"),
-        ("ClasificaciÃ³n de variables", "SÃ­ â€” numÃ©ricas, nominales, ordinales"),
-        ("Overfitting / Underfitting", "SÃ­ â€” analizado en cap. 11"),
-        ("ValidaciÃ³n cruzada", "Parcial â€” cv=3 en SVM calibrado"),
-        ("Deep Learning (redes neuronales)", "No â€” datos tabulares pequeÃ±os"),
-        ("Transfer Learning", "No â€” sin modelo preentrenado para este dominio"),
-        ("GANs", "No â€” no requiere generar datos realistas"),
+        ("Aprendizaje supervisado", "Sí — regresión y clasificación"),
+        ("Aprendizaje no supervisado", "Sí — clustering con K-Means"),
+        ("Aprendizaje por refuerzo", "Sí — Q-Learning tabular"),
+        ("Función objetivo", "Sí — MSE, Log-loss, Inercia, Q(s,a)"),
+        ("Dataset y etiquetas", "Sí — 9 variables, 2 targets"),
+        ("Clasificación de variables", "Sí — numéricas, nominales, ordinales"),
+        ("Overfitting / Underfitting", "Sí — analizado en cap. 11"),
+        ("Validación cruzada", "Parcial — cv=3 en SVM calibrado"),
+        ("Deep Learning (redes neuronales)", "No — datos tabulares pequeños"),
+        ("Transfer Learning", "No — sin modelo preentrenado para este dominio"),
+        ("GANs", "No — no requiere generar datos realistas"),
     ], ancho1=70, ancho2=110,
-        encabezados=("Concepto del temario", "Â¿Aplica al proyecto?"))
-    pdf.subtitulo("JustificaciÃ³n de exclusiones")
+        encabezados=("Concepto del temario", "¿Aplica al proyecto?"))
+    pdf.subtitulo("Justificación de exclusiones")
     pdf.parrafo(
         "Deep Learning, Transfer Learning y GANs requieren datasets de "
-        "miles o millones de registros, o datos no estructurados (imÃ¡genes, "
+        "miles o millones de registros, o datos no estructurados (imágenes, "
         "texto, audio). Con 120-200 registros tabulares, los modelos "
-        "clÃ¡sicos son la opciÃ³n metodolÃ³gicamente correcta: mejor "
+        "clásicos son la opción metodológicamente correcta: mejor "
         "interpretabilidad, menor riesgo de overfitting y menor costo "
         "computacional."
     )
-    pdf.subtitulo("FunciÃ³n objetivo por tipo de problema")
+    pdf.subtitulo("Función objetivo por tipo de problema")
     pdf.parrafo(
-        "â€¢ RegresiÃ³n: MSE (Error CuadrÃ¡tico Medio).\n"
-        "â€¢ ClasificaciÃ³n: Log-loss (cross-entropy) con regularizaciÃ³n L2.\n"
-        "â€¢ Clustering: Inercia (suma de distanciasÂ² al centroide).\n"
-        "â€¢ Refuerzo: valor Q(s,a) actualizado por la EcuaciÃ³n de Bellman."
+        "• Regresión: MSE (Error Cuadrático Medio).\n"
+        "• Clasificación: Log-loss (cross-entropy) con regularización L2.\n"
+        "• Clustering: Inercia (suma de distancias² al centroide).\n"
+        "• Refuerzo: valor Q(s,a) actualizado por la Ecuación de Bellman."
     )
-    # AnÃ¡lisis IA + preguntas (sin decisiones â€” es conceptual)
+    # Análisis IA + preguntas (sin decisiones — es conceptual)
     pdf.nota_doble(
         textos["ana_marco"]["tecnico"],
         textos["ana_marco"]["simple"],
     )
     pdf.preguntas_guia([
-        "Â¿El proyecto aplica correctamente el ciclo de vida de ML del temario?",
-        "Â¿Falta algÃºn concepto del curso que deberÃ­a estar cubierto?",
-        "Â¿La exclusiÃ³n de Deep Learning estÃ¡ justificada metodolÃ³gicamente?",
+        "¿El proyecto aplica correctamente el ciclo de vida de ML del temario?",
+        "¿Falta algún concepto del curso que debería estar cubierto?",
+        "¿La exclusión de Deep Learning está justificada metodológicamente?",
     ])
 
-    # ---------- 4. ADQUISICIÃ“N Y ANÃLISIS DE DATOS (antes "3. Calidad") ----------
-    pdf.titulo_capitulo("4", "AdquisiciÃ³n y AnÃ¡lisis de Datos")
+    # ---------- 4. ADQUISICIÓN Y ANÁLISIS DE DATOS (antes "3. Calidad") ----------
+    pdf.titulo_capitulo("4", "Adquisición y Análisis de Datos")
     pdf.parrafo(
         f"El dataset contiene {len(df)} registros con 9 variables "
-        f"({len(ctx['df_limpio'])} tras limpieza bÃ¡sica), capturados en horario matutino."
+        f"({len(ctx['df_limpio'])} tras limpieza básica), capturados en horario matutino."
     )
-    pdf.subtitulo("EstadÃ­sticas BÃ¡sicas")
+    pdf.subtitulo("Estadísticas Básicas")
     filas = [
         (col, f"Media={float(desc.loc['mean', col]):.2f}, Std={float(desc.loc['std', col]):.2f}")
         for col in desc.columns
     ]
-    pdf.caption_tabla("EstadÃ­sticas descriptivas de variables numÃ©ricas")
+    pdf.caption_tabla("Estadísticas descriptivas de variables numéricas")
     pdf.tabla_metrica(filas)
-    pdf.subtitulo("DetecciÃ³n de Outliers (IQR)")
+    pdf.subtitulo("Detección de Outliers (IQR)")
     if not outliers_summary.empty:
         filas_out = [
             (row["Variable"],
              f"Q1={row['Q1']}, Q3={row['Q3']}, N={row['N outliers']} ({row['% outliers']}%)")
             for _, row in outliers_summary.iterrows()
         ]
-        pdf.caption_tabla("DetecciÃ³n de outliers por mÃ©todo IQR")
+        pdf.caption_tabla("Detección de outliers por método IQR")
         pdf.tabla_metrica(filas_out)
     pdf.nota_doble(textos["calidad"]["tecnico"], textos["calidad"]["simple"])
     pdf.preguntas_guia([
-        "Â¿Los outliers corresponden a errores de captura o a comportamientos reales?",
-        "Â¿Conviene eliminar los outliers o conservarlos porque representan casos extremos legÃ­timos?",
+        "¿Los outliers corresponden a errores de captura o a comportamientos reales?",
+        "¿Conviene eliminar los outliers o conservarlos porque representan casos extremos legítimos?",
     ])
     pdf.decisiones_sugeridas(textos["dec_calidad"]["tecnico"])
 
@@ -1465,179 +1473,179 @@ def _construir_contenido(pdf, ctx: dict, textos: dict, png: dict, df=None):
     pdf.subtitulo("Pipeline de preprocesamiento aplicado")
     pdf.tabla_metrica([
         ("Limpieza", "dropna en Consumo/Espera/Servicio; filtro Consumo<=250"),
-        ("NormalizaciÃ³n", "StandardScaler (media 0, std 1) sobre X_train"),
-        ("CodificaciÃ³n", "LabelEncoder en Tipo_Cliente, Metodo_Pago, Es_Hora_Pico"),
+        ("Normalización", "StandardScaler (media 0, std 1) sobre X_train"),
+        ("Codificación", "LabelEncoder en Tipo_Cliente, Metodo_Pago, Es_Hora_Pico"),
         ("Manejo de nulos", "fillna(\"Nulo\") antes de LabelEncoder"),
-        ("ReducciÃ³n dim.", "PCA(n_components=2) solo para visualizaciÃ³n"),
-        ("Outliers", "DetecciÃ³n por IQR (1.5 * IQR)"),
+        ("Reducción dim.", "PCA(n_components=2) solo para visualización"),
+        ("Outliers", "Detección por IQR (1.5 * IQR)"),
     ], ancho1=55, ancho2=125)
-    pdf.subtitulo("JustificaciÃ³n de las tÃ©cnicas")
+    pdf.subtitulo("Justificación de las técnicas")
     pdf.parrafo(
-        "â€¢ StandardScaler: obligatorio para KNN, SVM y distancias "
-        "euclidianas; sin Ã©l, variables con rangos grandes (Consumo 0-500) "
-        "dominarÃ­an sobre variables con rangos pequeÃ±os (Hora 7-11).\n"
-        "â€¢ LabelEncoder: las variables categÃ³ricas tienen pocas categorÃ­as "
-        "(3 por variable) y los modelos basados en Ã¡rboles/KNN no se ven "
-        "afectados por el orden numÃ©rico.\n"
-        "â€¢ PCA: reduce dimensionalidad solo para visualizaciÃ³n en 2D; el "
+        "• StandardScaler: obligatorio para KNN, SVM y distancias "
+        "euclidianas; sin él, variables con rangos grandes (Consumo 0-500) "
+        "dominarían sobre variables con rangos pequeños (Hora 7-11).\n"
+        "• LabelEncoder: las variables categóricas tienen pocas categorías "
+        "(3 por variable) y los modelos basados en árboles/KNN no se ven "
+        "afectados por el orden numérico.\n"
+        "• PCA: reduce dimensionalidad solo para visualización en 2D; el "
         "entrenamiento de clustering se hace sobre el espacio completo."
     )
-    pdf.subtitulo("TÃ©cnicas NO aplicadas y su justificaciÃ³n")
+    pdf.subtitulo("Técnicas NO aplicadas y su justificación")
     pdf.parrafo(
-        "â€¢ One-Hot Encoding: no aplica porque con 3 categorÃ­as por variable "
+        "• One-Hot Encoding: no aplica porque con 3 categorías por variable "
         "el LabelEncoder es suficiente y evita aumentar dimensionalidad.\n"
-        "â€¢ ImputaciÃ³n por media/mediana: no aplica, porque solo se filtran "
-        "registros con NA en el target; las features con NA categÃ³rico "
+        "• Imputación por media/mediana: no aplica, porque solo se filtran "
+        "registros con NA en el target; las features con NA categórico "
         "reciben la etiqueta \"Nulo\".\n"
-        "â€¢ t-SNE / UMAP: no aplican a n=200; son tÃ©cnicas para datasets "
-        "grandes que requieren mÃ¡s muestras para preservar estructura."
+        "• t-SNE / UMAP: no aplican a n=200; son técnicas para datasets "
+        "grandes que requieren más muestras para preservar estructura."
     )
-    # AnÃ¡lisis IA + preguntas + decisiones
+    # Análisis IA + preguntas + decisiones
     pdf.nota_doble(
         textos["ana_preprocesamiento"]["tecnico"],
         textos["ana_preprocesamiento"]["simple"],
     )
     pdf.preguntas_guia([
-        "Â¿Hay variables que requieran transformaciÃ³n adicional (ej. log)?",
-        "Â¿El manejo actual de outliers puede estar eliminando casos reales?",
-        "Â¿Conviene normalizar tambiÃ©n las variables ordinales?",
+        "¿Hay variables que requieran transformación adicional (ej. log)?",
+        "¿El manejo actual de outliers puede estar eliminando casos reales?",
+        "¿Conviene normalizar también las variables ordinales?",
     ])
     pdf.decisiones_sugeridas(textos["dec_preprocesamiento"]["tecnico"])
 
-    # ---------- 6. DIVISIÃ“N DE DATOS ----------
-    pdf.titulo_capitulo("6", "DivisiÃ³n de Datos")
+    # ---------- 6. DIVISIÓN DE DATOS ----------
+    pdf.titulo_capitulo("6", "División de Datos")
     pdf.subtitulo("Esquema aplicado")
     pdf.parrafo(
-        "Se emplea una divisiÃ³n 70% entrenamiento / 30% prueba con "
+        "Se emplea una división 70% entrenamiento / 30% prueba con "
         "train_test_split(random_state=42) para garantizar reproducibilidad. "
-        "El conjunto de prueba se reserva exclusivamente para la evaluaciÃ³n "
-        "final y NUNCA participa en el ajuste de hiperparÃ¡metros."
+        "El conjunto de prueba se reserva exclusivamente para la evaluación "
+        "final y NUNCA participa en el ajuste de hiperparámetros."
     )
-    pdf.subtitulo("Â¿Por quÃ© no 60/20/20 con conjunto de validaciÃ³n?")
+    pdf.subtitulo("¿Por qué no 60/20/20 con conjunto de validación?")
     pdf.parrafo(
-        "Con n=120-200 registros, un conjunto de validaciÃ³n separado (20% "
-        "â‰ˆ 30 registros) serÃ­a estadÃ­sticamente insuficiente: las mÃ©tricas "
-        "tendrÃ­an varianza alta y no serÃ­an representativas. En su lugar, "
-        "se usa validaciÃ³n cruzada interna (CalibratedClassifierCV con cv=3) "
-        "en el modelo SVM, que es mÃ¡s robusto con muestras pequeÃ±as. La "
-        "rÃºbrica acepta 70/30 como opciÃ³n vÃ¡lida."
+        "Con n=120-200 registros, un conjunto de validación separado (20% "
+        "≈ 30 registros) sería estadísticamente insuficiente: las métricas "
+        "tendrían varianza alta y no serían representativas. En su lugar, "
+        "se usa validación cruzada interna (CalibratedClassifierCV con cv=3) "
+        "en el modelo SVM, que es más robusto con muestras pequeñas. La "
+        "rúbrica acepta 70/30 como opción válida."
     )
-    pdf.subtitulo("TamaÃ±o mÃ­nimo idÃ³neo de muestra")
+    pdf.subtitulo("Tamaño mínimo idóneo de muestra")
     pdf.tabla_metrica([
-        ("Para 70/30", "â‰¥100 registros (â‰¥30 en test)"),
-        ("Para 60/20/20", "â‰¥150 registros (â‰¥30 en test)"),
-        ("Para 5-fold CV", "â‰¥250 registros (â‰¥50 por fold)"),
-        ("RecomendaciÃ³n del proyecto", "â‰¥200 registros antes de generalizar"),
+        ("Para 70/30", "≥100 registros (≥30 en test)"),
+        ("Para 60/20/20", "≥150 registros (≥30 en test)"),
+        ("Para 5-fold CV", "≥250 registros (≥50 por fold)"),
+        ("Recomendación del proyecto", "≥200 registros antes de generalizar"),
     ], ancho1=60, ancho2=120)
     pdf.subtitulo("Nota sobre la base de datos")
     pdf.parrafo(
         "La app NO altera la base de datos al generar el reporte; los "
         "modelos se entrenan en memoria sobre el DataFrame cargado. La "
-        "simulaciÃ³n de Q-Learning es independiente y no usa datos de la BD. "
-        "El generador sintÃ©tico sÃ­ inserta registros en Supabase, pero solo "
-        "cuando el usuario lo solicita explÃ­citamente (con IDs nuevos "
+        "simulación de Q-Learning es independiente y no usa datos de la BD. "
+        "El generador sintético sí inserta registros en Supabase, pero solo "
+        "cuando el usuario lo solicita explícitamente (con IDs nuevos "
         "forzados para evitar duplicados)."
     )
-    # AnÃ¡lisis IA + preguntas (sin decisiones â€” es tÃ©cnico)
+    # Análisis IA + preguntas (sin decisiones — es técnico)
     pdf.nota_doble(
         textos["ana_division"]["tecnico"],
         textos["ana_division"]["simple"],
     )
     pdf.preguntas_guia([
-        "Â¿La muestra actual es suficiente para los 4 algoritmos comparados?",
-        "Â¿Conviene implementar k-fold CV completa cuando n>500?",
-        "Â¿El sesgo de selecciÃ³n por random_state=42 es despreciable?",
+        "¿La muestra actual es suficiente para los 4 algoritmos comparados?",
+        "¿Conviene implementar k-fold CV completa cuando n>500?",
+        "¿El sesgo de selección por random_state=42 es despreciable?",
     ])
 
-    # ---------- 7. SELECCIÃ“N DE MODELOS ----------
-    pdf.titulo_capitulo("7", "SelecciÃ³n de Modelos")
+    # ---------- 7. SELECCIÓN DE MODELOS ----------
+    pdf.titulo_capitulo("7", "Selección de Modelos")
     pdf.subtitulo("Modelos aplicados por tipo de problema")
     pdf.tabla_metrica([
-        ("RegresiÃ³n", "Lineal + Ãrbol de RegresiÃ³n"),
-        ("ClasificaciÃ³n", "LogÃ­stica, KNN, SVM, Ãrbol"),
-        ("Clustering", "K-Means, JerÃ¡rquico, DBSCAN"),
+        ("Regresión", "Lineal + Árbol de Regresión"),
+        ("Clasificación", "Logística, KNN, SVM, Árbol"),
+        ("Clustering", "K-Means, Jerárquico, DBSCAN"),
         ("Refuerzo", "Q-Learning tabular"),
     ], ancho1=50, ancho2=130)
-    pdf.subtitulo("Modelos NO aplicados y su justificaciÃ³n")
+    pdf.subtitulo("Modelos NO aplicados y su justificación")
     pdf.parrafo(
-        "â€¢ RegresiÃ³n polinÃ³mica: no se justifica con 7 features y relaciones "
-        "aproximadamente lineales; aÃ±ade complejidad sin mejora medible.\n"
-        "â€¢ Naive Bayes: asume independencia entre features, irreal en "
-        "contexto de cafeterÃ­a (espera y servicio estÃ¡n correlacionados).\n"
-        "â€¢ Random Forest / XGBoost: n<200 favorece modelos simples; "
-        "ensembles requieren mÃ¡s datos para evitar overfitting.\n"
-        "â€¢ Gaussian Mixture Models (GMM): asume distribuciones gaussianas "
-        "que no se cumplen en datos mixtos (numÃ©ricos + categÃ³ricos).\n"
-        "â€¢ Spectral Clustering: requiere matrices de similitud mÃ¡s grandes "
+        "• Regresión polinómica: no se justifica con 7 features y relaciones "
+        "aproximadamente lineales; añade complejidad sin mejora medible.\n"
+        "• Naive Bayes: asume independencia entre features, irreal en "
+        "contexto de cafetería (espera y servicio están correlacionados).\n"
+        "• Random Forest / XGBoost: n<200 favorece modelos simples; "
+        "ensembles requieren más datos para evitar overfitting.\n"
+        "• Gaussian Mixture Models (GMM): asume distribuciones gaussianas "
+        "que no se cumplen en datos mixtos (numéricos + categóricos).\n"
+        "• Spectral Clustering: requiere matrices de similitud más grandes "
         "y es costoso computacionalmente para n=200.\n"
-        "â€¢ DQN, Policy Gradient, A2C: el entorno de 3 estados Ã— 3 acciones "
-        "es demasiado simple; Q-Learning tabular es suficiente y mÃ¡s "
+        "• DQN, Policy Gradient, A2C: el entorno de 3 estados × 3 acciones "
+        "es demasiado simple; Q-Learning tabular es suficiente y más "
         "interpretable."
     )
-    pdf.subtitulo("Regla de selecciÃ³n aplicada")
+    pdf.subtitulo("Regla de selección aplicada")
     pdf.parrafo(
-        "La complejidad del modelo debe ser proporcional al tamaÃ±o y "
+        "La complejidad del modelo debe ser proporcional al tamaño y "
         "estructura del dataset. Con 120-200 registros tabulares, los "
-        "modelos clÃ¡sicos son metodolÃ³gicamente correctos: mejor "
+        "modelos clásicos son metodológicamente correctos: mejor "
         "interpretabilidad, menor riesgo de overfitting y menor costo "
         "computacional."
     )
-    # AnÃ¡lisis IA + preguntas + decisiones
+    # Análisis IA + preguntas + decisiones
     pdf.nota_doble(
         textos["ana_seleccion"]["tecnico"],
         textos["ana_seleccion"]["simple"],
     )
     pdf.preguntas_guia([
-        "Â¿Los 4 clasificadores cubren el espectro de algoritmos del temario?",
-        "Â¿Falta algÃºn modelo clÃ¡sico relevante (ej. LDA)?",
-        "Â¿La exclusiÃ³n de ensembles estÃ¡ justificada por el tamaÃ±o de muestra?",
+        "¿Los 4 clasificadores cubren el espectro de algoritmos del temario?",
+        "¿Falta algún modelo clásico relevante (ej. LDA)?",
+        "¿La exclusión de ensembles está justificada por el tamaño de muestra?",
     ])
     pdf.decisiones_sugeridas(textos["dec_seleccion"]["tecnico"])
 
     # ---------- 8. ENTRENAMIENTO SUPERVISADO ----------
-    # Merge de "4. RegresiÃ³n" + "5. ClasificaciÃ³n" en dos subsecciones.
-    pdf.titulo_capitulo("8", "Entrenamiento y EvaluaciÃ³n Supervisada")
+    # Merge de "4. Regresión" + "5. Clasificación" en dos subsecciones.
+    pdf.titulo_capitulo("8", "Entrenamiento y Evaluación Supervisada")
 
-    # ---- 8.1 RegresiÃ³n (antes "4. Modelos de RegresiÃ³n") ----
-    pdf.subtitulo("8.1 RegresiÃ³n")
-    pdf.parrafo("PredicciÃ³n del Consumo Total (MXN) usando RegresiÃ³n Lineal y Ãrboles.")
+    # ---- 8.1 Regresión (antes "4. Modelos de Regresión") ----
+    pdf.subtitulo("8.1 Regresión")
+    pdf.parrafo("Predicción del Consumo Total (MXN) usando Regresión Lineal y Árboles.")
     if res_reg.get("error"):
-        pdf.parrafo(f"Error en regresiÃ³n: {res_reg['error']}")
+        pdf.parrafo(f"Error en regresión: {res_reg['error']}")
     else:
-        pdf.subtitulo("MÃ©tricas de EvaluaciÃ³n")
+        pdf.subtitulo("Métricas de Evaluación")
         m_lr, m_dt = res_reg["metricas_lr"], res_reg["metricas_dt"]
-        pdf.caption_tabla("MÃ©tricas de evaluaciÃ³n de modelos de regresiÃ³n")
+        pdf.caption_tabla("Métricas de evaluación de modelos de regresión")
         pdf.tabla_metrica([
-            ("RegresiÃ³n Lineal - MSE", f"{m_lr['MSE']:.2f}"),
-            ("RegresiÃ³n Lineal - RÂ²", f"{m_lr['R2']:.4f} ({semaforo('R2', m_lr['R2'])})"),
-            ("Ãrbol de RegresiÃ³n - MSE", f"{m_dt['MSE']:.2f}"),
-            ("Ãrbol de RegresiÃ³n - RÂ²", f"{m_dt['R2']:.4f} ({semaforo('R2', m_dt['R2'])})"),
+            ("Regresión Lineal - MSE", f"{m_lr['MSE']:.2f}"),
+            ("Regresión Lineal - R²", f"{m_lr['R2']:.4f} ({semaforo('R2', m_lr['R2'])})"),
+            ("Árbol de Regresión - MSE", f"{m_dt['MSE']:.2f}"),
+            ("Árbol de Regresión - R²", f"{m_dt['R2']:.4f} ({semaforo('R2', m_dt['R2'])})"),
         ])
-        pdf.subtitulo("Ficha TÃ©cnica")
+        pdf.subtitulo("Ficha Técnica")
         pdf.parrafo(
-            "â€¢ Modelos: RegresiÃ³n Lineal (mÃ­nimos cuadrados) y DecisionTreeRegressor(max_depth=5).\n"
-            "â€¢ Variables predictoras: Hora_Llegada, Tiempo_Espera_Min, Tiempo_Servicio_Min, "
+            "• Modelos: Regresión Lineal (mínimos cuadrados) y DecisionTreeRegressor(max_depth=5).\n"
+            "• Variables predictoras: Hora_Llegada, Tiempo_Espera_Min, Tiempo_Servicio_Min, "
             "Tipo_Cliente (encoding), Metodo_Pago (encoding), Es_Hora_Pico (encoding).\n"
-            "â€¢ Target: Consumo_Total_MXN.\n"
-            "â€¢ DivisiÃ³n: 70% entrenamiento / 30% prueba (random_state=42).\n"
-            "â€¢ Escalado: StandardScaler sobre X_train; el mismo transform se aplica a X_test."
+            "• Target: Consumo_Total_MXN.\n"
+            "• División: 70% entrenamiento / 30% prueba (random_state=42).\n"
+            "• Escalado: StandardScaler sobre X_train; el mismo transform se aplica a X_test."
         )
         pdf.agregar_figura(png["reg"])
-        pdf.caption_figura("DispersiÃ³n real vs predicho del modelo lineal")
+        pdf.caption_figura("Dispersión real vs predicho del modelo lineal")
         pdf.nota_doble(textos["reg"]["tecnico"], textos["reg"]["simple"])
         pdf.preguntas_guia([
-            "Â¿Los puntos se ajustan a la diagonal o hay sesgo en consumos altos/bajos?",
-            "Si el RÂ² fuera 20% menor, Â¿quÃ© decisiÃ³n operativa cambiarÃ­a?",
-            "Â¿QuÃ© variable adicional (clima, dÃ­a de la semana, promociones) podrÃ­a mejorar el modelo?",
+            "¿Los puntos se ajustan a la diagonal o hay sesgo en consumos altos/bajos?",
+            "Si el R² fuera 20% menor, ¿qué decisión operativa cambiaría?",
+            "¿Qué variable adicional (clima, día de la semana, promociones) podría mejorar el modelo?",
         ])
         pdf.decisiones_sugeridas(textos["dec_reg"]["tecnico"])
 
-    # ---- 8.2 ClasificaciÃ³n (antes "5. Modelos de ClasificaciÃ³n") ----
-    pdf.subtitulo("8.2 ClasificaciÃ³n")
-    pdf.parrafo("PredicciÃ³n de SatisfacciÃ³n Alta (4-5) vs Baja (1-3) con 4 algoritmos.")
+    # ---- 8.2 Clasificación (antes "5. Modelos de Clasificación") ----
+    pdf.subtitulo("8.2 Clasificación")
+    pdf.parrafo("Predicción de Satisfacción Alta (4-5) vs Baja (1-3) con 4 algoritmos.")
     if mejores:
-        pdf.subtitulo("ComparaciÃ³n de Modelos")
-        pdf.caption_tabla("ComparaciÃ³n de clasificadores: F1 y Accuracy")
+        pdf.subtitulo("Comparación de Modelos")
+        pdf.caption_tabla("Comparación de clasificadores: F1 y Accuracy")
         filas = []
         for m, r in mejores.items():
             f1 = r["metricas"]["F1"]
@@ -1652,136 +1660,136 @@ def _construir_contenido(pdf, ctx: dict, textos: dict, png: dict, df=None):
             f"El mejor modelo fue {mejor_nombre} con F1-Score de "
             f"{contexto['clasificacion']['mejor_f1']:.3f}."
         )
-        pdf.subtitulo("Ficha TÃ©cnica")
+        pdf.subtitulo("Ficha Técnica")
         hiperparams = {
-            "RegresiÃ³n LogÃ­stica": "LogisticRegression(max_iter=1000, random_state=42)",
+            "Regresión Logística": "LogisticRegression(max_iter=1000, random_state=42)",
             "KNN": "KNeighborsClassifier(n_neighbors=5)",
             "SVM": "CalibratedClassifierCV(SVC(random_state=42), method='sigmoid', cv=3)",
-            "Ãrbol de DecisiÃ³n": "DecisionTreeClassifier(max_depth=5, random_state=42)",
+            "Árbol de Decisión": "DecisionTreeClassifier(max_depth=5, random_state=42)",
         }.get(mejor_nombre, "N/A")
         pdf.parrafo(
-            f"â€¢ Algoritmo ganador: {mejor_nombre} â†’ {hiperparams}.\n"
-            "â€¢ Variables predictoras: las mismas 7 del modelo de regresiÃ³n.\n"
-            "â€¢ Target: Satisfaccion_Alta = 1 si Satisfaccion_1_al_5 â‰¥ 4, si no 0.\n"
-            "â€¢ DivisiÃ³n: 70% / 30% (random_state=42).\n"
-            "â€¢ Escalado: StandardScaler sobre X_train."
+            f"• Algoritmo ganador: {mejor_nombre} → {hiperparams}.\n"
+            "• Variables predictoras: las mismas 7 del modelo de regresión.\n"
+            "• Target: Satisfaccion_Alta = 1 si Satisfaccion_1_al_5 ≥ 4, si no 0.\n"
+            "• División: 70% / 30% (random_state=42).\n"
+            "• Escalado: StandardScaler sobre X_train."
         )
         pdf.agregar_figura(png["cm"])
-        pdf.caption_figura(f"Matriz de confusiÃ³n del modelo {mejor_nombre}")
+        pdf.caption_figura(f"Matriz de confusión del modelo {mejor_nombre}")
         if png["roc"]:
             pdf.agregar_figura(png["roc"])
             pdf.caption_figura(f"Curva ROC del modelo {mejor_nombre}")
         pdf.nota_doble(textos["clf"]["tecnico"], textos["clf"]["simple"])
         pdf.preguntas_guia([
-            "Â¿QuÃ© es mÃ¡s costoso para la cafeterÃ­a: un falso positivo o un falso negativo de insatisfacciÃ³n?",
-            "Â¿CuÃ¡l serÃ­a el costo operativo de predecir satisfacciÃ³n alta cuando en realidad es baja?",
-            "Â¿Se justifica la complejidad de SVM si LogÃ­stica da un F1 similar?",
+            "¿Qué es más costoso para la cafetería: un falso positivo o un falso negativo de insatisfacción?",
+            "¿Cuál sería el costo operativo de predecir satisfacción alta cuando en realidad es baja?",
+            "¿Se justifica la complejidad de SVM si Logística da un F1 similar?",
         ])
         pdf.decisiones_sugeridas(textos["dec_clf"]["tecnico"])
 
     # ---------- 9. NO SUPERVISADO (antes "6.") ----------
-    pdf.titulo_capitulo("9", "Entrenamiento y EvaluaciÃ³n No Supervisada")
-    pdf.parrafo("SegmentaciÃ³n de clientes con K-Means, JerÃ¡rquico y DBSCAN.")
+    pdf.titulo_capitulo("9", "Entrenamiento y Evaluación No Supervisada")
+    pdf.parrafo("Segmentación de clientes con K-Means, Jerárquico y DBSCAN.")
     if not res_km.get("error"):
         sil = res_km["silhouette"]
         pdf.subtitulo("K-Means (k=3)")
         pdf.parrafo(
-            f"Ãndice de Silhouette: {sil:.4f} ({semaforo('Silhouette', sil)})."
+            f"Índice de Silhouette: {sil:.4f} ({semaforo('Silhouette', sil)})."
         )
-        pdf.subtitulo("Ficha TÃ©cnica")
+        pdf.subtitulo("Ficha Técnica")
         pdf.parrafo(
-            "â€¢ Algoritmo: KMeans(n_clusters=3, n_init=10, random_state=42).\n"
-            "â€¢ Features estandarizadas: 7 variables (numÃ©ricas + categÃ³ricas con LabelEncoder).\n"
-            "â€¢ ReducciÃ³n para visualizaciÃ³n: PCA a 2 componentes (solo para graficar).\n"
-            "â€¢ ValidaciÃ³n: silhouette_score sobre el espacio escalado completo."
+            "• Algoritmo: KMeans(n_clusters=3, n_init=10, random_state=42).\n"
+            "• Features estandarizadas: 7 variables (numéricas + categóricas con LabelEncoder).\n"
+            "• Reducción para visualización: PCA a 2 componentes (solo para graficar).\n"
+            "• Validación: silhouette_score sobre el espacio escalado completo."
         )
         pdf.agregar_figura(png["km_codo"])
-        pdf.caption_figura("SelecciÃ³n de k mediante mÃ©todo del codo")
+        pdf.caption_figura("Selección de k mediante método del codo")
         pdf.agregar_figura(png["km_pca"])
-        pdf.caption_figura("VisualizaciÃ³n de clÃºsteres K-Means en PCA 2D")
+        pdf.caption_figura("Visualización de clústeres K-Means en PCA 2D")
         pdf.nota_doble(textos["km"]["tecnico"], textos["km"]["simple"])
         pdf.preguntas_guia([
-            "Â¿Los clÃºsteres corresponden a tipos de cliente reales o son artefactos del algoritmo?",
-            "Â¿QuÃ© acciÃ³n de negocio diferenciada aplicarÃ­a a cada clÃºster?",
-            "Â¿CuÃ¡ntos clÃºsteres son accionables operativamente (no solo matemÃ¡ticamente)?",
+            "¿Los clústeres corresponden a tipos de cliente reales o son artefactos del algoritmo?",
+            "¿Qué acción de negocio diferenciada aplicaría a cada clúster?",
+            "¿Cuántos clústeres son accionables operativamente (no solo matemáticamente)?",
         ])
         pdf.decisiones_sugeridas(textos["dec_km"]["tecnico"])
 
-    # ---------- 6.5 JERÃRQUICO (antes huÃ©rfano) ----------
+    # ---------- 6.5 JERÁRQUICO (antes huérfano) ----------
     if not res_jer.get("error"):
-        pdf.subtitulo("Clustering JerÃ¡rquico (Aglomerativo)")
+        pdf.subtitulo("Clustering Jerárquico (Aglomerativo)")
         pdf.parrafo(
-            "â€¢ Algoritmo: AgglomerativeClustering con linkage='ward'.\n"
-            "â€¢ Distancia: euclidiana sobre features estandarizadas.\n"
-            "â€¢ VisualizaciÃ³n: dendrograma hasta hoja completa."
+            "• Algoritmo: AgglomerativeClustering con linkage='ward'.\n"
+            "• Distancia: euclidiana sobre features estandarizadas.\n"
+            "• Visualización: dendrograma hasta hoja completa."
         )
         pdf.agregar_figura(png["jer"])
-        pdf.caption_figura("Dendrograma del clustering jerÃ¡rquico aglomerativo")
+        pdf.caption_figura("Dendrograma del clustering jerárquico aglomerativo")
         pdf.nota_doble(
             textos["ana_dendro"]["tecnico"],
             textos["ana_dendro"]["simple"],
         )
         pdf.preguntas_guia([
-            "Â¿En quÃ© altura del dendrograma se aprecia el corte mÃ¡s natural?",
-            "Â¿Las ramas mÃ¡s largas corresponden a clientes atÃ­picos o a un clÃºster pequeÃ±o?",
-            "Â¿El resultado jerÃ¡rquico coincide con los clÃºsteres de K-Means?",
+            "¿En qué altura del dendrograma se aprecia el corte más natural?",
+            "¿Las ramas más largas corresponden a clientes atípicos o a un clúster pequeño?",
+            "¿El resultado jerárquico coincide con los clústeres de K-Means?",
         ])
         pdf.decisiones_sugeridas(textos["dec_dendro"]["tecnico"])
 
     # ---------- 10. REFUERZO (antes "7.") ----------
-    pdf.titulo_capitulo("10", "Entrenamiento y EvaluaciÃ³n por Refuerzo")
+    pdf.titulo_capitulo("10", "Entrenamiento y Evaluación por Refuerzo")
     pdf.parrafo(
-        "Se implementÃ³ Q-Learning en un entorno simulado donde un agente (barista) "
-        "decide cuÃ¡ntos empleados asignar segÃºn la afluencia (Baja, Media, Alta)."
+        "Se implementó Q-Learning en un entorno simulado donde un agente (barista) "
+        "decide cuántos empleados asignar según la afluencia (Baja, Media, Alta)."
     )
     pdf.agregar_figura(png["ap"])
     pdf.caption_figura("Curva de aprendizaje del agente Q-Learning")
     pdf.agregar_figura(png["q"])
-    pdf.caption_figura("Matriz Q final: valor por estado y acciÃ³n")
-    pdf.subtitulo("Ficha TÃ©cnica")
+    pdf.caption_figura("Matriz Q final: valor por estado y acción")
+    pdf.subtitulo("Ficha Técnica")
     pdf.parrafo(
-        "â€¢ Algoritmo: Q-Learning tabular, polÃ­tica Îµ-greedy (Îµ=0.1).\n"
-        "â€¢ HiperparÃ¡metros: Î±=0.1, Î³=0.9, episodios=500, max_pasos=50 por episodio.\n"
-        "â€¢ Estados: 3 niveles de afluencia (Baja / Media / Alta).\n"
-        "â€¢ Acciones: 3 niveles de staffing (1 / 2 / 3 baristas).\n"
-        "â€¢ Recompensa: matriz R(estado, acciÃ³n) del simulador (ganancia estimada).\n"
-        "â€¢ Transiciones: probabilÃ­sticas (simulan variabilidad de la afluencia)."
+        "• Algoritmo: Q-Learning tabular, política ε-greedy (ε=0.1).\n"
+        "• Hiperparámetros: α=0.1, γ=0.9, episodios=500, max_pasos=50 por episodio.\n"
+        "• Estados: 3 niveles de afluencia (Baja / Media / Alta).\n"
+        "• Acciones: 3 niveles de staffing (1 / 2 / 3 baristas).\n"
+        "• Recompensa: matriz R(estado, acción) del simulador (ganancia estimada).\n"
+        "• Transiciones: probabilísticas (simulan variabilidad de la afluencia)."
     )
-    pdf.subtitulo("PolÃ­tica Ã“ptima Aprendida")
+    pdf.subtitulo("Política Óptima Aprendida")
     for _, row in politica.iterrows():
-        pdf.parrafo(f"â€¢ Estado {row['Estado (Afluencia)']}: {row['Mejor AcciÃ³n']} "
+        pdf.parrafo(f"• Estado {row['Estado (Afluencia)']}: {row['Mejor Acción']} "
                     f"(Q={row['Valor Q']})")
     pdf.nota_doble(textos["rl"]["tecnico"], textos["rl"]["simple"])
     pdf.preguntas_guia([
-        "Â¿CÃ³mo cambiarÃ­a la polÃ­tica si la recompensa priorizara satisfacciÃ³n sobre ganancia?",
-        "Â¿QuÃ© tan sensible es la polÃ­tica Ã³ptima a los valores de Î± y Î³?",
-        "Â¿CÃ³mo se validarÃ­a esta polÃ­tica contra datos reales antes de implantarla?",
+        "¿Cómo cambiaría la política si la recompensa priorizara satisfacción sobre ganancia?",
+        "¿Qué tan sensible es la política óptima a los valores de α y γ?",
+        "¿Cómo se validaría esta política contra datos reales antes de implantarla?",
     ])
     pdf.decisiones_sugeridas(textos["dec_rl"]["tecnico"])
 
-    # ---------- 11. VALIDACIÃ“N Y ANÃLISIS DE RESULTADOS ----------
-    pdf.titulo_capitulo("11", "ValidaciÃ³n y AnÃ¡lisis de Resultados")
+    # ---------- 11. VALIDACIÓN Y ANÁLISIS DE RESULTADOS ----------
+    pdf.titulo_capitulo("11", "Validación y Análisis de Resultados")
 
     # ---- 11.1 Overfitting ----
-    pdf.subtitulo("11.1 DetecciÃ³n de Overfitting")
+    pdf.subtitulo("11.1 Detección de Overfitting")
     pdf.parrafo(
-        "Se compara el desempeÃ±o del modelo en entrenamiento (train) contra "
-        "prueba (test). Un delta > 0.15 en RÂ² o F1 sugiere posible "
+        "Se compara el desempeño del modelo en entrenamiento (train) contra "
+        "prueba (test). Un delta > 0.15 en R² o F1 sugiere posible "
         "overfitting (el modelo memoriza en lugar de generalizar)."
     )
     filas_ov = []
     if not res_reg.get("error"):
         for nombre_ov, k_test, k_train in [
-            ("RegresiÃ³n Lineal", "metricas_lr", "metricas_lr_train"),
-            ("Ãrbol de RegresiÃ³n", "metricas_dt", "metricas_dt_train"),
+            ("Regresión Lineal", "metricas_lr", "metricas_lr_train"),
+            ("Árbol de Regresión", "metricas_dt", "metricas_dt_train"),
         ]:
             r2_train = float(res_reg[k_train]["R2"])
             r2_test = float(res_reg[k_test]["R2"])
             delta_r2 = r2_train - r2_test
             filas_ov.append((
                 nombre_ov,
-                f"RÂ² train={r2_train:.3f} | test={r2_test:.3f} | "
-                f"Î”={delta_r2:+.3f} ({'OVERFITTING' if delta_r2 > 0.15 else 'OK'})",
+                f"R² train={r2_train:.3f} | test={r2_test:.3f} | "
+                f"Δ={delta_r2:+.3f} ({'OVERFITTING' if delta_r2 > 0.15 else 'OK'})",
             ))
     for nombre_ov, r_ov in mejores.items():
         f1_train = float(r_ov["metricas_train"]["F1"])
@@ -1790,14 +1798,14 @@ def _construir_contenido(pdf, ctx: dict, textos: dict, png: dict, df=None):
         filas_ov.append((
             nombre_ov,
             f"F1 train={f1_train:.3f} | test={f1_test:.3f} | "
-            f"Î”={delta_f1:+.3f} ({'OVERFITTING' if delta_f1 > 0.15 else 'OK'})",
+            f"Δ={delta_f1:+.3f} ({'OVERFITTING' if delta_f1 > 0.15 else 'OK'})",
         ))
     if filas_ov:
-        pdf.caption_tabla("ComparaciÃ³n train vs test para detecciÃ³n de overfitting")
+        pdf.caption_tabla("Comparación train vs test para detección de overfitting")
         pdf.tabla_metrica(filas_ov, ancho1=60, ancho2=120)
 
-    # ---- 11.2 Underfitting (diagnÃ³stico con los valores reales del run) ----
-    pdf.subtitulo("11.2 DetecciÃ³n de Underfitting")
+    # ---- 11.2 Underfitting (diagnóstico con los valores reales del run) ----
+    pdf.subtitulo("11.2 Detección de Underfitting")
     mejor_r2_test = None
     if not res_reg.get("error"):
         mejor_r2_test = max(
@@ -1810,181 +1818,181 @@ def _construir_contenido(pdf, ctx: dict, textos: dict, png: dict, df=None):
     )
 
     if mejor_r2_test is None:
-        diag_reg = "sin datos de regresiÃ³n (N/A)."
+        diag_reg = "sin datos de regresión (N/A)."
     elif mejor_r2_test < 0.3:
-        diag_reg = "SÃ se observa underfitting en regresiÃ³n (RÂ² < 0.3)."
+        diag_reg = "SÍ se observa underfitting en regresión (R² < 0.3)."
     else:
-        diag_reg = "NO se observa underfitting severo en regresiÃ³n."
+        diag_reg = "NO se observa underfitting severo en regresión."
 
     if mejor_f1_test is None:
-        diag_clf = "sin datos de clasificaciÃ³n (N/A)."
+        diag_clf = "sin datos de clasificación (N/A)."
     elif mejor_f1_test < 0.5:
-        diag_clf = "SÃ se observa underfitting en clasificaciÃ³n (F1 < 0.5)."
+        diag_clf = "SÍ se observa underfitting en clasificación (F1 < 0.5)."
     else:
-        diag_clf = "NO se observa underfitting severo en clasificaciÃ³n."
+        diag_clf = "NO se observa underfitting severo en clasificación."
 
     txt_r2 = f"{mejor_r2_test:.3f}" if mejor_r2_test is not None else "N/A"
     txt_f1 = f"{mejor_f1_test:.3f}" if mejor_f1_test is not None else "N/A"
     pdf.parrafo(
-        "RÂ² < 0.3 en regresiÃ³n o F1 < 0.5 en clasificaciÃ³n indican modelo "
+        "R² < 0.3 en regresión o F1 < 0.5 en clasificación indican modelo "
         "demasiado simple para capturar la estructura del problema. Con los "
         "datos actuales:\n"
-        f"â€¢ Mejor RÂ² (test) = {txt_r2} â†’ {diag_reg}\n"
-        f"â€¢ Mejor F1 (test) = {txt_f1} â†’ {diag_clf}"
+        f"• Mejor R² (test) = {txt_r2} → {diag_reg}\n"
+        f"• Mejor F1 (test) = {txt_f1} → {diag_clf}"
     )
 
     # ---- 11.3 Mitigaciones ----
     pdf.subtitulo("11.3 Mitigaciones aplicadas")
     pdf.parrafo(
-        "â€¢ Poda preventiva: max_depth=5 en Ã¡rboles para limitar profundidad.\n"
-        "â€¢ RegularizaciÃ³n: L2 por defecto en RegresiÃ³n LogÃ­stica.\n"
-        "â€¢ ValidaciÃ³n cruzada: CalibratedClassifierCV(cv=3) en SVM.\n"
-        "â€¢ DivisiÃ³n 70/30: conjunto de prueba nunca participa en ajuste."
+        "• Poda preventiva: max_depth=5 en árboles para limitar profundidad.\n"
+        "• Regularización: L2 por defecto en Regresión Logística.\n"
+        "• Validación cruzada: CalibratedClassifierCV(cv=3) en SVM.\n"
+        "• División 70/30: conjunto de prueba nunca participa en ajuste."
     )
 
     # ---- 11.4 Conclusiones y Limitaciones (texto de v3.3) ----
     pdf.subtitulo("11.4 Conclusiones y Limitaciones")
     pdf.nota_doble(textos["conclusiones"]["tecnico"], textos["conclusiones"]["simple"])
     tam_muestra_nota = (
-        "El tamaÃ±o de muestra actual es acotado; convendrÃ¡ ampliar los registros "
+        "El tamaño de muestra actual es acotado; convendrá ampliar los registros "
         "capturados antes de generalizar a todos los turnos."
         if len(df) < 200
         else f"El dataset cuenta con {len(df)} registros tabulares, lo que favorece "
-             f"modelos clÃ¡sicos y simulaciones frente a arquitecturas profundas."
+             f"modelos clásicos y simulaciones frente a arquitecturas profundas."
     )
     pdf.parrafo(
-        f"â€¢ {tam_muestra_nota}\n"
-        "â€¢ El Aprendizaje por Refuerzo opera sobre un entorno simulado y no sobre telemetrÃ­a real.\n"
-        "â€¢ No se aplicaron Transfer Learning ni GANs debido a la naturaleza tabular."
+        f"• {tam_muestra_nota}\n"
+        "• El Aprendizaje por Refuerzo opera sobre un entorno simulado y no sobre telemetría real.\n"
+        "• No se aplicaron Transfer Learning ni GANs debido a la naturaleza tabular."
     )
 
-    # AnÃ¡lisis IA + preguntas + decisiones del capÃ­tulo
+    # Análisis IA + preguntas + decisiones del capítulo
     pdf.nota_doble(
         textos["ana_validacion"]["tecnico"],
         textos["ana_validacion"]["simple"],
     )
     pdf.preguntas_guia([
-        "Â¿El delta train/test observado indica overfitting preocupante?",
-        "Â¿La muestra actual permite estimaciones estables de F1/AUC?",
-        "Â¿QuÃ© modelo conviene desplegar si se prioriza generalizaciÃ³n?",
+        "¿El delta train/test observado indica overfitting preocupante?",
+        "¿La muestra actual permite estimaciones estables de F1/AUC?",
+        "¿Qué modelo conviene desplegar si se prioriza generalización?",
     ])
     pdf.decisiones_sugeridas(textos["dec_validacion"]["tecnico"])
 
-    # ---------- 12. IMPLEMENTACIÃ“N FUNCIONAL ----------
-    pdf.titulo_capitulo("12", "ImplementaciÃ³n Funcional")
+    # ---------- 12. IMPLEMENTACIÓN FUNCIONAL ----------
+    pdf.titulo_capitulo("12", "Implementación Funcional")
 
-    # ---- 12.1 DescripciÃ³n de la aplicaciÃ³n ----
-    pdf.subtitulo("12.1 DescripciÃ³n de la AplicaciÃ³n Streamlit")
+    # ---- 12.1 Descripción de la aplicación ----
+    pdf.subtitulo("12.1 Descripción de la Aplicación Streamlit")
     pdf.parrafo(
-        "La implementaciÃ³n funcional del proyecto se materializa en una "
-        "aplicaciÃ³n web desarrollada con Streamlit y desplegada en Streamlit "
+        "La implementación funcional del proyecto se materializa en una "
+        "aplicación web desarrollada con Streamlit y desplegada en Streamlit "
         "Community Cloud. La app permite: (1) capturar registros manualmente, "
-        "(2) cargar archivos CSV/Excel, (3) generar datos sintÃ©ticos, (4) "
+        "(2) cargar archivos CSV/Excel, (3) generar datos sintéticos, (4) "
         "entrenar modelos supervisados, no supervisados y de refuerzo, y (5) "
-        "descargar reportes PDF con anÃ¡lisis asistido por IA. El cÃ³digo fuente "
-        "estÃ¡ versionado en GitHub y la base de datos se aloja en Supabase "
+        "descargar reportes PDF con análisis asistido por IA. El código fuente "
+        "está versionado en GitHub y la base de datos se aloja en Supabase "
         "(PostgreSQL en la nube)."
     )
 
-    # ---- 12.2 Plan de acciÃ³n (antes "8. Plan") ----
-    pdf.subtitulo("12.2 Plan de AcciÃ³n Operativo")
+    # ---- 12.2 Plan de acción (antes "8. Plan") ----
+    pdf.subtitulo("12.2 Plan de Acción Operativo")
     pdf.nota_doble(textos["plan"]["tecnico"], textos["plan"]["simple"])
 
     # ---- 12.3 Riesgos (antes "9. Riesgos") ----
-    pdf.subtitulo("12.3 Riesgos y PrÃ³ximos Pasos")
+    pdf.subtitulo("12.3 Riesgos y Próximos Pasos")
     pdf.nota_doble(textos["riesgos"]["tecnico"], textos["riesgos"]["simple"])
     pdf.decisiones_sugeridas(textos["dec_riesgos"]["tecnico"])
 
     # ---------- 13. ENTREGABLES ----------
     pdf.titulo_capitulo("13", "Entregables del Proyecto")
     pdf.parrafo(
-        "Conforme a la rÃºbrica del Proyecto Final, los entregables son:"
+        "Conforme a la rúbrica del Proyecto Final, los entregables son:"
     )
-    pdf.subtitulo("13.1 PresentaciÃ³n")
+    pdf.subtitulo("13.1 Presentación")
     pdf.parrafo(
-        "Documento ejecutivo con portada, Ã­ndice, introducciÃ³n, descripciÃ³n "
-        "del problema, objetivos, metodologÃ­a, modelo utilizado, resultados, "
+        "Documento ejecutivo con portada, índice, introducción, descripción "
+        "del problema, objetivos, metodología, modelo utilizado, resultados, "
         "conclusiones y referencias. Este reporte PDF constituye la base "
-        "metodolÃ³gica de la presentaciÃ³n."
+        "metodológica de la presentación."
     )
     pdf.subtitulo("13.2 Video demostrativo")
     pdf.parrafo(
-        "GrabaciÃ³n de 8-12 minutos mostrando la app funcionando en vivo: "
-        "captura de datos, entrenamiento de modelos, generaciÃ³n de reportes "
-        "y anÃ¡lisis de resultados. ParticipaciÃ³n de todos los integrantes "
+        "Grabación de 8-12 minutos mostrando la app funcionando en vivo: "
+        "captura de datos, entrenamiento de modelos, generación de reportes "
+        "y análisis de resultados. Participación de todos los integrantes "
         "con rostro visible, subido a YouTube."
     )
-    pdf.subtitulo("13.3 CÃ³digo funcional")
+    pdf.subtitulo("13.3 Código funcional")
     pdf.parrafo(
         "Repositorio GitHub con la app Streamlit completa:\n"
-        "â€¢ App en producciÃ³n: https://cafeteria-ml-aprendizaje-auto.streamlit.app\n"
-        "â€¢ Repositorio: https://github.com/GGRAFSS/cafeteria-ml\n"
-        "â€¢ Base de datos: Supabase (PostgreSQL en la nube)\n"
-        "â€¢ Reproducibilidad: random_state=42, seed=42, requirements.txt versionado"
+        "• App en producción: https://cafeteria-ml-aprendizaje-auto.streamlit.app\n"
+        "• Repositorio: https://github.com/GGRAFSS/cafeteria-ml\n"
+        "• Base de datos: Supabase (PostgreSQL en la nube)\n"
+        "• Reproducibilidad: random_state=42, seed=42, requirements.txt versionado"
     )
-    pdf.subtitulo("13.4 Cobertura de la RÃºbrica")
-    pdf.caption_tabla("Cobertura de los 12 puntos de la rÃºbrica")
+    pdf.subtitulo("13.4 Cobertura de la Rúbrica")
+    pdf.caption_tabla("Cobertura de los 12 puntos de la rúbrica")
     pdf.tabla_metrica([
-        ("1. DefiniciÃ³n del problema", "Cap. 1 + app"),
+        ("1. Definición del problema", "Cap. 1 + app"),
         ("2. Objetivos", "Cap. 2"),
         ("3. Marco conceptual", "Cap. 3"),
-        ("4. AnÃ¡lisis de datos", "Cap. 4 + app"),
+        ("4. Análisis de datos", "Cap. 4 + app"),
         ("5. Preprocesamiento", "Cap. 5"),
-        ("6. DivisiÃ³n de datos", "Cap. 6"),
-        ("7. SelecciÃ³n del modelo", "Cap. 7"),
+        ("6. División de datos", "Cap. 6"),
+        ("7. Selección del modelo", "Cap. 7"),
         ("8. Entrenamiento", "Cap. 8, 9, 10"),
-        ("9. EvaluaciÃ³n", "Cap. 8, 9, 10"),
-        ("10. ValidaciÃ³n y anÃ¡lisis", "Cap. 11"),
-        ("11. ImplementaciÃ³n funcional", "Cap. 12 + app"),
-        ("12. Entregables", "Este capÃ­tulo + repo + video"),
+        ("9. Evaluación", "Cap. 8, 9, 10"),
+        ("10. Validación y análisis", "Cap. 11"),
+        ("11. Implementación funcional", "Cap. 12 + app"),
+        ("12. Entregables", "Este capítulo + repo + video"),
     ], ancho1=80, ancho2=100,
-        encabezados=("Punto de la rÃºbrica", "DÃ³nde se cubre"))
-    # Sin anÃ¡lisis IA (es informativo)
+        encabezados=("Punto de la rúbrica", "Dónde se cubre"))
+    # Sin análisis IA (es informativo)
 
     # ---------- 14. GLOSARIO (antes "10.5") ----------
     pdf.titulo_capitulo("14", "Glosario")
     pdf.parrafo(
-        "Definiciones para lectores sin formaciÃ³n tÃ©cnica en ciencia de datos."
+        "Definiciones para lectores sin formación técnica en ciencia de datos."
     )
     glosario = [
-        ("RÂ² (Coeficiente de determinaciÃ³n)",
-         "QuÃ© porcentaje de la variaciÃ³n de una variable explica el modelo. "
-         "Va de 0 a 1; mÃ¡s cerca de 1 = mejor."),
-        ("MSE (Error CuadrÃ¡tico Medio)",
-         "Promedio del cuadrado de los errores de predicciÃ³n. MÃ¡s bajo = mejor. "
-         "Su raÃ­z cuadrada se interpreta en pesos (MXN)."),
+        ("R² (Coeficiente de determinación)",
+         "Qué porcentaje de la variación de una variable explica el modelo. "
+         "Va de 0 a 1; más cerca de 1 = mejor."),
+        ("MSE (Error Cuadrático Medio)",
+         "Promedio del cuadrado de los errores de predicción. Más bajo = mejor. "
+         "Su raíz cuadrada se interpreta en pesos (MXN)."),
         ("Accuracy / Exactitud",
          "Porcentaje de predicciones correctas sobre el total."),
-        ("Precision / PrecisiÃ³n",
-         "De los que el modelo dijo que eran de una clase, cuÃ¡ntos realmente lo eran."),
+        ("Precision / Precisión",
+         "De los que el modelo dijo que eran de una clase, cuántos realmente lo eran."),
         ("Recall / Exhaustividad",
-         "De los que realmente eran de una clase, cuÃ¡ntos detectÃ³ el modelo."),
+         "De los que realmente eran de una clase, cuántos detectó el modelo."),
         ("F1-Score",
-         "Promedio armÃ³nico entre precisiÃ³n y exhaustividad. Arriba de 0.7 suele ser aceptable."),
+         "Promedio armónico entre precisión y exhaustividad. Arriba de 0.7 suele ser aceptable."),
         ("AUC-ROC",
          "Capacidad para separar clases. 0.5 = azar, 1.0 = perfecto."),
-        ("Matriz de ConfusiÃ³n",
+        ("Matriz de Confusión",
          "Tabla que cruza predicciones con valores reales."),
         ("Silhouette",
-         "QuÃ© tan bien separados estÃ¡n los clÃºsteres. Arriba de 0.5 indica estructura clara."),
-        ("PCA (AnÃ¡lisis de Componentes Principales)",
-         "TÃ©cnica para reducir muchas variables a 2 o 3 dimensiones para visualizar."),
+         "Qué tan bien separados están los clústeres. Arriba de 0.5 indica estructura clara."),
+        ("PCA (Análisis de Componentes Principales)",
+         "Técnica para reducir muchas variables a 2 o 3 dimensiones para visualizar."),
         ("Dendrograma",
-         "Diagrama de Ã¡rbol que muestra cÃ³mo se agrupan los datos en el clustering jerÃ¡rquico."),
-        ("Q-Learning / EcuaciÃ³n de Bellman",
-         "Algoritmo de aprendizaje por refuerzo donde el agente aprende el valor de cada acciÃ³n."),
+         "Diagrama de árbol que muestra cómo se agrupan los datos en el clustering jerárquico."),
+        ("Q-Learning / Ecuación de Bellman",
+         "Algoritmo de aprendizaje por refuerzo donde el agente aprende el valor de cada acción."),
         ("Outlier",
-         "Valor atÃ­pico que se aleja mucho del resto."),
+         "Valor atípico que se aleja mucho del resto."),
         ("Train/Test Split",
-         "DivisiÃ³n del dataset: 70% entrenar, 30% evaluar."),
+         "División del dataset: 70% entrenar, 30% evaluar."),
         ("StandardScaler / Escalado",
-         "TransformaciÃ³n que centra cada variable en media 0 y desviaciÃ³n 1."),
+         "Transformación que centra cada variable en media 0 y desviación 1."),
         ("LabelEncoder / Encoding",
-         "Convertir categorÃ­as de texto a nÃºmeros."),
+         "Convertir categorías de texto a números."),
         ("Overfitting",
          "Cuando el modelo memoriza los datos de entrenamiento pero falla con datos nuevos."),
-        ("HiperparÃ¡metro",
-         "ConfiguraciÃ³n elegida ANTES de entrenar (ej. max_depth, k, alpha)."),
+        ("Hiperparámetro",
+         "Configuración elegida ANTES de entrenar (ej. max_depth, k, alpha)."),
     ]
     pdf.tabla_larga(glosario)
 
@@ -1994,13 +2002,13 @@ def _construir_contenido(pdf, ctx: dict, textos: dict, png: dict, df=None):
         "1. Mitchell, T. (1997). Machine Learning. McGraw-Hill.\n"
         "2. Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning. MIT Press.\n"
         "3. Sutton, R. S., & Barto, A. G. (2018). Reinforcement Learning: An Introduction. MIT Press.\n"
-        "4. GÃ©ron, A. (2019). Hands-On Machine Learning with Scikit-Learn, Keras, and TensorFlow. O'Reilly.\n"
+        "4. Géron, A. (2019). Hands-On Machine Learning with Scikit-Learn, Keras, and TensorFlow. O'Reilly.\n"
         "5. Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning in Python. JMLR 12."
     )
 
 
 # ============================================================
-# REPORTE RESUMEN (1 PÃGINA)
+# REPORTE RESUMEN (1 PÁGINA)
 # ============================================================
 def generar_resumen_pdf(df: pd.DataFrame) -> tuple:
     if df.empty or len(df) < 20:
@@ -2013,32 +2021,32 @@ def generar_resumen_pdf(df: pd.DataFrame) -> tuple:
 
         fallback = (
             f"{len(df)} registros; consumo promedio ${resumen_exec['consumo_prom']:.2f}; "
-            f"satisfacciÃ³n {resumen_exec['sat_prom']:.2f}/5; "
+            f"satisfacción {resumen_exec['sat_prom']:.2f}/5; "
             f"mejor clasificador: "
             f"{contexto.get('clasificacion', {}).get('mejor_modelo', 'N/A')}."
         )
         textos = analizar_seccion_ia(
-            "Resumen Ejecutivo (versiÃ³n 1 pÃ¡gina)",
+            "Resumen Ejecutivo (versión 1 página)",
             contexto,
             fallback,
             instruccion_extra=(
-                "Resumen ejecutivo MUY conciso (mÃ¡x 110 palabras) que cubra: "
-                "volumen de datos, consumo promedio, satisfacciÃ³n, mejor modelo, "
-                "polÃ­tica Ã³ptima de baristas y 2 decisiones operativas clave."
+                "Resumen ejecutivo MUY conciso (máx 110 palabras) que cubra: "
+                "volumen de datos, consumo promedio, satisfacción, mejor modelo, "
+                "política óptima de baristas y 2 decisiones operativas clave."
             ),
         )
 
         pdf = ReporteCafeteria()
         pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.cap_actual = "Resumen Ejecutivo"   # tÃ­tulo del encabezado de pÃ¡gina
+        pdf.cap_actual = "Resumen Ejecutivo"   # título del encabezado de página
         pdf.add_page()
 
         pdf.set_font(pdf.FONT, "B", 16)
         pdf.set_text_color(0, 51, 102)
-        pdf.cell(0, 10, "CafeterÃ­a Universitaria â€” Resumen Ejecutivo", 0, 1, "C")
+        pdf.cell(0, 10, "Cafetería Universitaria — Resumen Ejecutivo", 0, 1, "C")
         pdf.set_font(pdf.FONT, "", 9)
         pdf.set_text_color(100, 100, 100)
-        pdf.cell(0, 5, "Aprendizaje AutomÃ¡tico Â· MaestrÃ­a en Inteligencia Artificial Â· TecNM", 0, 1, "C")
+        pdf.cell(0, 5, "Aprendizaje Automático · Maestría en Inteligencia Artificial · TecNM", 0, 1, "C")
         pdf.cell(0, 5, f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}", 0, 1, "C")
         pdf.ln(4)
 
@@ -2051,28 +2059,28 @@ def generar_resumen_pdf(df: pd.DataFrame) -> tuple:
 
         pdf.subtitulo("Indicadores Clave")
         politica_alta = next(
-            (p["Mejor AcciÃ³n"] for p in ctx["politica_records"]
+            (p["Mejor Acción"] for p in ctx["politica_records"]
              if p["Estado (Afluencia)"] == "Alta"), "N/A"
         )
         pdf.tabla_metrica([
             ("Registros en BD", f"{len(df)}"),
             ("Consumo promedio", f"${contexto['consumo_promedio_mxn']:.2f} MXN"),
             ("Consumo total observado", f"${contexto['consumo_total_mxn']:.2f} MXN"),
-            ("SatisfacciÃ³n promedio", f"{contexto['satisfaccion_promedio']:.2f} / 5"),
+            ("Satisfacción promedio", f"{contexto['satisfaccion_promedio']:.2f} / 5"),
             ("% Hora pico", f"{contexto['porcentaje_hora_pico']:.1f}%"),
             ("Espera promedio", f"{contexto['espera_promedio_min']:.1f} min"),
             ("Mejor clasificador", contexto.get("clasificacion", {}).get("mejor_modelo", "N/A")),
             ("F1 del mejor modelo", f"{contexto.get('clasificacion', {}).get('mejor_f1', 'N/A')}"),
-            ("PolÃ­tica Ã³ptima (afluencia alta)", politica_alta),
+            ("Política óptima (afluencia alta)", politica_alta),
         ], ancho1=70, ancho2=100)
 
         pdf.subtitulo("Acciones Prioritarias")
         politica_txt = ", ".join(
-            f"{p['Estado (Afluencia)']}â†’{p['Mejor AcciÃ³n']}"
+            f"{p['Estado (Afluencia)']}→{p['Mejor Acción']}"
             for p in ctx["politica_records"]
         )
         pdf.parrafo(
-            f"1. AsignaciÃ³n de personal segÃºn afluencia (polÃ­tica Q-Learning): {politica_txt}.\n"
+            f"1. Asignación de personal según afluencia (política Q-Learning): {politica_txt}.\n"
             "2. Agilizar caja en hora pico con prepago por app.\n"
             "3. Segmentar promociones por tipo de cliente y horario.\n"
             "4. Revisar outliers de espera (>25 min) y consumo (>200 MXN).\n"
@@ -2084,8 +2092,8 @@ def generar_resumen_pdf(df: pd.DataFrame) -> tuple:
         pdf.set_text_color(120, 120, 120)
         pdf.multi_cell(0, 4,
             "Este resumen es un extracto del reporte completo. "
-            "Solicite el documento Ã­ntegro para ver metodologÃ­a, grÃ¡ficas, "
-            "fichas tÃ©cnicas, comparativas crÃ­ticas y glosario."
+            "Solicite el documento íntegro para ver metodología, gráficas, "
+            "fichas técnicas, comparativas críticas y glosario."
         )
 
         return bytes(pdf.output()), None
