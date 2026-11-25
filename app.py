@@ -273,19 +273,15 @@ tabs = st.tabs([
 with tabs[0]:
     st.subheader("Gestión de Datos")
 
-    # Conteo en vivo de la base: alimenta el gate de las cuatro sub-pestañas.
+    # Conteo en vivo de la base: solo informativo, la ingesta es libre.
     n_actual = dm.count_records()
-    slots = max(0, dm.MAX_REGISTROS - n_actual) if n_actual >= 0 else -1
     if n_actual < 0:
         st.warning(
-            "No se pudo leer el conteo de registros en Supabase: los límites de "
-            "ingesta no se pueden verificar en este momento."
+            "No se pudo leer el conteo de registros en Supabase: la ingesta "
+            "sigue disponible, pero el conteo actual es desconocido."
         )
     else:
-        st.caption(
-            f"📦 Base actual: **{n_actual} / {dm.MAX_REGISTROS}** registros · "
-            f"espacio disponible: **{slots}**"
-        )
+        st.caption(f"📦 Base actual: **{n_actual}** registros")
 
     tab_manual, tab_file, tab_sintetico, tab_norm = st.tabs(
         [
@@ -313,18 +309,6 @@ with tabs[0]:
                 pico = st.selectbox("¿Hora pico?", ["No", "Sí"])
 
             if st.form_submit_button("💾 Guardar registro"):
-                if slots < 0:
-                    st.error(
-                        "No se pudo verificar el conteo actual de la base: no se "
-                        "guardó el registro para no exceder el límite."
-                    )
-                    st.stop()
-                if slots == 0:
-                    st.error(
-                        f"La base ya tiene **{dm.MAX_REGISTROS}** registros (límite). "
-                        "No se guardó; usa el **Normalizador de BD** para liberar espacio."
-                    )
-                    st.stop()
                 record = {
                     "ID_Cliente": dm.next_id(df),
                     "Hora_Llegada": float(hora),
@@ -348,12 +332,7 @@ with tabs[0]:
         st.markdown("Sube un archivo con las **mismas columnas** que el dataset original.")
 
         st.markdown("#### 🧪 ¿No tienes un archivo? Genera uno de prueba")
-        if slots == 0:
-            st.info(
-                f"La base está llena ({dm.MAX_REGISTROS} registros): no se pueden "
-                "insertar más datos. Usa el **Normalizador de BD** para liberar espacio."
-            )
-        _max_csv = max(1, min(dm.MAX_REGISTROS, slots)) if slots > 0 else 1
+        _max_csv = 10000
         c_gen1, c_gen2 = st.columns([1, 2])
         with c_gen1:
             n_csv = st.number_input(
@@ -392,27 +371,12 @@ with tabs[0]:
 
                 st.write("Vista previa de los datos:")
                 st.dataframe(file_df.head(), use_container_width=True)
-                st.caption(
-                    f"Filas en el archivo: **{len(file_df)}** · espacio disponible "
-                    f"en la base: **{slots if slots >= 0 else 'desconocido'}**"
-                )
+                st.caption(f"Filas en el archivo: **{len(file_df)}**")
 
                 if st.button("🚀 Inyectar a Supabase"):
                     missing_cols = [c for c in dm.COLUMNS if c not in file_df.columns]
                     if missing_cols:
                         st.error(f"Faltan columnas: {missing_cols}")
-                    elif slots < 0:
-                        st.error(
-                            "No se pudo verificar el conteo actual de la base: no se "
-                            "insertaron los datos para no exceder el límite."
-                        )
-                    elif len(file_df) > slots:
-                        st.error(
-                            f"El archivo trae **{len(file_df)}** registros y solo caben "
-                            f"**{slots}** (límite {dm.MAX_REGISTROS}, base con "
-                            f"{n_actual}). Reduce el archivo o usa el "
-                            "**Normalizador de BD**."
-                        )
                     else:
                         with st.spinner("Insertando..."):
                             ok, err, count = dm.bulk_insert(file_df)
@@ -427,30 +391,19 @@ with tabs[0]:
     # --- SINTÉTICOS ---
     with tab_sintetico:
         st.markdown("Genera datos sintéticos con la misma distribución para probar tus modelos.")
-        if slots < 0:
-            st.error(
-                "No se pudo verificar el conteo actual de la base: no se permiten "
-                "inserciones sin control del límite."
-            )
-        elif slots == 0:
-            st.error(
-                f"La base ya tiene **{dm.MAX_REGISTROS}** registros (límite). "
-                "Usa el **Normalizador de BD** para liberar espacio."
-            )
-        else:
-            _max_sint = min(dm.MAX_REGISTROS, slots)
-            n_sint = st.slider(
-                "Cantidad de registros a generar:", 1, _max_sint, min(50, _max_sint)
-            )
-            if st.button("🧪 Generar e Insertar Sintéticos"):
-                with st.spinner(f"Generando {n_sint} registros..."):
-                    df_sint = dm.generar_datos_sinteticos(n_sint)
-                    ok, err, count = dm.bulk_insert(df_sint)
-                if ok:
-                    st.success(f"✅ {count} registros sintéticos insertados.")
-                    st.rerun()
-                else:
-                    st.error(f"Error: {err}")
+        _max_sint = 5000
+        n_sint = st.slider(
+            "Cantidad de registros a generar:", 1, _max_sint, min(50, _max_sint)
+        )
+        if st.button("🧪 Generar e Insertar Sintéticos"):
+            with st.spinner(f"Generando {n_sint} registros..."):
+                df_sint = dm.generar_datos_sinteticos(n_sint)
+                ok, err, count = dm.bulk_insert(df_sint)
+            if ok:
+                st.success(f"✅ {count} registros sintéticos insertados.")
+                st.rerun()
+            else:
+                st.error(f"Error: {err}")
 
     # --- NORMALIZADOR DE BD ---
     with tab_norm:

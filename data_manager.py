@@ -197,13 +197,13 @@ def save_record(record: dict) -> tuple[bool, str | None]:
 
 
 def bulk_insert(
-    df: pd.DataFrame, respetar_limite: bool = True
+    df: pd.DataFrame, respetar_limite: bool = False
 ) -> tuple[bool, str | None, int]:
     """Inserta un DataFrame en Supabase forzando IDs nuevos (evita duplicados siempre).
 
-    Con respetar_limite=True (por defecto) aplica el gate de MAX_REGISTROS y
-    rechaza la inserción completa si el lote no cabe. El normalizador interno
-    llama con respetar_limite=False porque él mismo calcula el faltante exacto.
+    La ingesta es libre (sin tope de registros): el único límite del sistema es
+    el Normalizador de BD, que deja la base en 1..MAX_REGISTROS. El parámetro
+    respetar_limite se conserva por compatibilidad, pero ya no se usa por defecto.
     """
     if df.empty:
         return False, "El archivo está vacío.", 0
