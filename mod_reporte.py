@@ -345,19 +345,60 @@ class ReporteCafeteria(FPDF):
         `encabezados` permite rótulos distintos de "Métrica"/"Valor" (p. ej.
         "Concepto del temario"/"¿Aplica al proyecto?" en el cap. 3). El default
         conserva el comportamiento previo para todos los llamadores existentes.
+
+        Fix de desbordes (v5.1): la columna de valores usa multi_cell() para
+        envolver el texto dentro del recuadro; si el valor es largo se baja a
+        8 pt y, si alguna palabra no cabe en la columna (p. ej. una firma de
+        sklearn), se corta por caracteres (wrapmode="CHAR").
         """
-        self.set_x(self.l_margin)
-        self.set_font(self.FONT, "B", 9)
-        self.set_fill_color(0, 51, 102)
-        self.set_text_color(255, 255, 255)
-        self.cell(ancho1, 7, str(encabezados[0]), 1, 0, "C", True)
-        self.cell(ancho2, 7, str(encabezados[1]), 1, 1, "C", True)
-        self.set_font(self.FONT, "", 9)
-        self.set_text_color(0, 0, 0)
-        for k, v in filas:
+        ancho_util = self.w - self.l_margin - self.r_margin
+        if ancho1 + ancho2 > ancho_util:
+            ancho2 = ancho_util - ancho1
+
+        def _encabezado():
+            self.set_font(self.FONT, "B", 9)
+            self.set_fill_color(0, 51, 102)
+            self.set_text_color(255, 255, 255)
             self.set_x(self.l_margin)
-            self.cell(ancho1, 6, str(k), 1, 0, "L")
-            self.cell(ancho2, 6, str(v), 1, 1, "L")
+            self.cell(ancho1, 7, str(encabezados[0]), 1, 0, "C", True)
+            self.cell(ancho2, 7, str(encabezados[1]), 1, 1, "C", True)
+            self.set_text_color(0, 0, 0)
+
+        def _wrap(texto, ancho):
+            """CHAR si alguna palabra no cabe en el ancho; WORD si cabe."""
+            limite = ancho - 2 * self.c_margin
+            if any(self.get_string_width(t) > limite for t in texto.split()):
+                return "CHAR"
+            return "WORD"
+
+        _encabezado()
+
+        for k, v in filas:
+            k_txt, v_txt = str(k), str(v)
+            tam_v = 8 if len(v_txt) > 42 else 9
+            alto_v = 4.6 if tam_v == 8 else 5.2
+
+            # Evita partir una fila entre páginas (mínimo 2 renglones).
+            if self.get_y() + 2 * alto_v + 2 > self.h - self.b_margin - 5:
+                self.add_page()
+                _encabezado()
+
+            x_ini = self.l_margin
+            y_ini = self.get_y()
+
+            self.set_font(self.FONT, "", 8 if len(k_txt) > 42 else 9)
+            self.set_xy(x_ini, y_ini)
+            self.multi_cell(ancho1, 5, k_txt, 1, "L",
+                            wrapmode=_wrap(k_txt, ancho1))
+            y_col1 = self.get_y()
+
+            self.set_font(self.FONT, "", tam_v)
+            self.set_xy(x_ini + ancho1, y_ini)
+            self.multi_cell(ancho2, alto_v, v_txt, 1, "L",
+                            wrapmode=_wrap(v_txt, ancho2))
+            y_col2 = self.get_y()
+
+            self.set_xy(x_ini, max(y_col1, y_col2))
         self.ln(3)
 
     def tabla_larga(self, filas, ancho1=55, ancho2=125):
